@@ -1,0 +1,1725 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Database–Model–Feature Knowledge Graph</title>
+
+  <link rel="stylesheet" href="./vendor/vis-network.min.css" />
+  <script src="./vendor/vis-network.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+    .wrap { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
+    .wrap.left-hidden { grid-template-columns: 0 1fr; }
+    .wrap.left-hidden .panel{
+      width: 0; padding: 0; border-right: 0;
+      overflow: hidden; pointer-events: none;
+    }
+
+    .panel { border-right: 1px solid #e5e5e5; padding: 14px; overflow: auto; min-width: 0; }
+    .netwrap { position: relative; height: 100vh; background:#fff; }
+    #mynetwork { width: 100%; height: 100%; background: #fff; }
+
+    .row { display: grid; gap: 8px; margin-bottom: 12px; }
+    label { font-size: 12px; color: #444; }
+
+    .panel input, .panel select, .panel button {
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      background: #fff;
+    }
+    .panel button { cursor: pointer; }
+
+    .btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .hint { font-size: 12px; color: #666; line-height: 1.4; }
+    .hr { height: 1px; background: #eee; margin: 12px 0; }
+
+    #configBox {
+      position: absolute; top: 8px; bottom: 8px; right: 12px;
+      width: 340px; overflow: auto;
+      background: rgba(255,255,255,0.96);
+      border: 1px solid #ddd; border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.10);
+      z-index: 9999;
+    }
+    #configBox h3 { margin: 0; font-size: 14px; }
+    #configBox .mini{
+      font-size: 12px; color: #666; line-height: 1.35;
+      margin-top: 6px; white-space: normal;
+    }
+    #configBox .cfgRow{ margin: 12px 0 14px; }
+    #configBox .cfgRow .topline{
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; font-size: 12px; color: #444; margin-bottom: 6px;
+    }
+    #configBox input[type="range"]{ width: 100%; margin: 0; }
+    #configBox button{
+      padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px;
+      font-size: 13px; cursor: pointer; background: #fff;
+    }
+    #configBox .cfgBtns{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    #configBox .sep{ height: 1px; background: #eee; margin: 10px 0; }
+
+    .headRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .headRow .title { font-weight: 700; font-size: 16px; }
+
+    .floatTab{
+      position: fixed; top: 12px; z-index: 10001;
+      padding: 8px 10px; border: 1px solid #ddd; border-radius: 999px;
+      background: rgba(255,255,255,0.96);
+      box-shadow: 0 6px 24px rgba(0,0,0,0.10);
+      cursor: pointer; font-size: 13px; display: none; user-select: none;
+    }
+    #showLeftBtn { left: 12px; }
+    #showRightBtn { right: 12px; }
+
+    #loadingOverlay{
+      position: fixed; inset: 0; z-index: 20000;
+      background: rgba(255,255,255,0.88);
+      display: none; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    #loadingCard{
+      width: min(520px, calc(100vw - 32px));
+      border: 1px solid #e5e5e5; border-radius: 14px;
+      background: rgba(255,255,255,0.98);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+      padding: 14px 14px 12px;
+    }
+    #loadingTitle{ font-size: 14px; font-weight: 700; margin: 0 0 6px; }
+    #loadingText{ font-size: 12px; color: #444; margin: 0 0 10px; line-height: 1.4; }
+    #loadingBarOuter{ height: 10px; background: #eee; border-radius: 999px; overflow: hidden; }
+    #loadingBarInner{
+      height: 100%; width: 0%;
+      background: #3498DB; border-radius: 999px;
+      transition: width 120ms linear;
+    }
+    #loadingPct{ margin-top: 8px; font-size: 12px; color: #666; text-align: right; font-variant-numeric: tabular-nums; }
+
+    #errBar{
+      position: fixed; left: 12px; bottom: 12px;
+      max-width: calc(100vw - 24px);
+      background: rgba(255, 230, 230, 0.95);
+      border: 1px solid #f3b3b3; border-radius: 10px;
+      padding: 10px 12px; font-size: 12px; color: #7a1f1f;
+      display: none; z-index: 10000; white-space: pre-wrap;
+    }
+
+    .styleGrid{ display: grid; gap: 10px; }
+    .styleBlock{
+      border: 1px solid #eee;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fafafa;
+    }
+    .styleBlock .stTitle{
+      font-size: 12px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .styleRow{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .styleRow > div { display: grid; gap: 6px; }
+    .styleRow input[type="color"]{
+      height: 36px;
+      padding: 0;
+      border-radius: 8px;
+    }
+    .styleRow input[type="number"]{ width: 100%; }
+    .styleBtns{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    /* ===== 布局模式UI ===== */
+    .layoutBox{
+      border: 1px solid #eee;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fafafa;
+    }
+    .layoutBox .ttl{ font-weight:700; font-size:13px; color:#222; }
+    .layoutRow{
+      display:grid;
+      grid-template-columns: 1fr 92px;
+      gap: 8px;
+      align-items:center;
+      margin-top:8px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="loadingOverlay">
+    <div id="loadingCard">
+      <div id="loadingTitle">正在加载知识图谱…</div>
+      <div id="loadingText">初始化中</div>
+      <div id="loadingBarOuter"><div id="loadingBarInner"></div></div>
+      <div id="loadingPct">0%</div>
+    </div>
+  </div>
+
+  <button id="showLeftBtn" class="floatTab">显示左侧</button>
+  <button id="showRightBtn" class="floatTab">显示右侧</button>
+
+  <div class="wrap" id="wrapRoot">
+    <div class="panel" id="leftPanel">
+      <div class="row">
+        <div class="headRow">
+          <div class="title">Knowledge Graph</div>
+          <button id="hideLeftBtn" title="隐藏左侧面板">隐藏</button>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label>搜索节点</label>
+        <input id="searchInput" placeholder="例如：MIMIC / LSTM / Glucose ..." />
+        <button id="searchBtn">定位</button>
+        <div class="hint">提示：搜索会定位到第一个匹配节点并选中它。</div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label>筛选：数据库（只显示这个数据库相关的模型+特征）</label>
+        <select id="dbSelect"></select>
+
+        <label>筛选：模型（只显示这个模型相关的数据库+特征）</label>
+        <select id="modelSelect"></select>
+
+        <div class="btnrow">
+          <button id="applyFilterBtn">应用筛选</button>
+          <button id="resetBtn">重置</button>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <!-- ===== 布局模式切换（新增，不删原功能） ===== -->
+      <div class="row">
+        <div class="layoutBox">
+          <div class="ttl">布局模式</div>
+          <div class="layoutRow">
+            <select id="layoutMode">
+              <option value="hier" selected>层级布局（默认，稳）</option>
+              <option value="cluster">聚类环形（模型成簇）</option>
+            </select>
+            <button id="applyLayoutBtn" style="padding:6px 8px; font-size:12px;">应用</button>
+          </div>
+          <div class="hint" style="margin-top:8px;">
+            层级布局：DB → Model → Feature（三组）；<br>
+            聚类环形：模型在椭圆上，特征按“最大 value 归属模型”围绕模型多环排布（稳定）。
+          </div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label><input type="checkbox" id="toggleLabels" checked /> 显示标签</label>
+        <label><input type="checkbox" id="togglePhysics" /> 启用物理引擎</label>
+        <label><input type="checkbox" id="toggleShadowShared" /> 共享特征按模型复制</label>
+
+        <div class="btnrow">
+          <button id="fitBtn">Fit 全图</button>
+          <button id="exportBtn">导出 PNG</button>
+        </div>
+
+        <div class="hint">导出会生成全图PNG，背景纯白。</div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="hint" id="stats"></div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <div style="font-weight:700; font-size:14px;">样式设置（颜色 / 大小 / 字体）</div>
+
+        <div class="styleGrid">
+          <div class="styleBlock">
+            <div class="stTitle">数据库节点（database）</div>
+            <div class="styleRow">
+              <div><label>节点颜色</label><input id="c_db_node" type="color" /></div>
+              <div><label>节点大小（盒子padding）</label><input id="s_db_node" type="number" min="8" max="80" step="1" /></div>
+            </div>
+            <div class="styleRow">
+              <div><label>文字颜色</label><input id="c_db_font" type="color" /></div>
+              <div><label>文字大小</label><input id="s_db_font" type="number" min="8" max="40" step="1" /></div>
+            </div>
+          </div>
+
+          <div class="styleBlock">
+            <div class="stTitle">模型节点（model）</div>
+            <div class="styleRow">
+              <div><label>节点颜色</label><input id="c_m_node" type="color" /></div>
+              <div><label>节点大小</label><input id="s_m_node" type="number" min="8" max="80" step="1" /></div>
+            </div>
+            <div class="styleRow">
+              <div><label>文字颜色</label><input id="c_m_font" type="color" /></div>
+              <div><label>文字大小</label><input id="s_m_font" type="number" min="8" max="40" step="1" /></div>
+            </div>
+          </div>
+
+          <div class="styleBlock">
+            <div class="stTitle">特征节点（feature）</div>
+            <div class="styleRow">
+              <div><label>节点颜色</label><input id="c_f_node" type="color" /></div>
+              <div><label>节点大小</label><input id="s_f_node" type="number" min="8" max="80" step="1" /></div>
+            </div>
+            <div class="styleRow">
+              <div><label>文字颜色</label><input id="c_f_font" type="color" /></div>
+              <div><label>文字大小</label><input id="s_f_font" type="number" min="8" max="40" step="1" /></div>
+            </div>
+          </div>
+
+          <div class="styleBtns">
+            <button id="applyStyleBtn">应用样式</button>
+            <button id="resetStyleBtn">恢复默认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="netwrap">
+      <div id="mynetwork"></div>
+
+      <div id="configBox">
+        <div class="headRow" style="margin-bottom:6px;">
+          <h3>Physics（5 个滑条）</h3>
+          <button id="hideRightBtn" title="隐藏右侧面板">隐藏</button>
+        </div>
+
+        <div class="mini" style="margin-top:0;">
+          说明：默认关闭 physics（避免布局抖动与“爆炸”）。你仍可开启用于拖动排版。<br/>
+          布局模式切换使用确定性算法（稳定可复现）。
+        </div>
+
+        <div id="configInner"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="errBar"></div>
+
+<script>
+  // ======== 小工具：让 UI 不“假死” ========
+  function nextFrame(){ return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); }
+  window.addEventListener("error", (e) => {
+    try { setLoading(false); } catch(_) {}
+    try { showErr("JS 运行错误：\n" + (e?.message || e)); } catch(_) {}
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    try { setLoading(false); } catch(_) {}
+    try { showErr("Promise 未捕获错误：\n" + (e?.reason?.message || e?.reason || e)); } catch(_) {}
+  });
+
+  let rawData = null;
+  let nodesDS = null, edgesDS = null, network = null;
+  let allNodes = [];
+  let allEdges = [];
+
+  let leftVisible = true;
+  let rightVisible = true;
+
+  let physicsEnabled = false;          // 默认关闭
+  let autoFreezePending = true;
+
+  // ✅ 你要的：布局模式（默认层级）
+  let layoutMode = "hier";
+  const TARGET_ASPECT = 1.0;
+
+  // 影子共享特征（保留功能）
+  let SHADOW_SHARED_FEATURES = false;
+
+  // featureOwner: (特征/影子特征) -> 归属 model（用于聚类环形）
+  let featureOwner = new Map();
+
+  const DEFAULT_STYLE = {
+    database: { nodeColor: "#0099FF", nodeSize: 70, fontColor: "#FFFFFF", fontSize: 60 },
+    model:    { nodeColor: "#E74C3C", nodeSize: 50, fontColor: "#000000", fontSize: 50 },
+    feature:  { nodeColor: "#2ECC71", nodeSize: 40, fontColor: "#666666", fontSize: 40 }
+  };
+  let styleCfg = JSON.parse(JSON.stringify(DEFAULT_STYLE));
+
+  const MIN_SCALE = 0.35;
+  const MAX_SCALE = 3.50;
+  const WHEEL_ZOOM_K = 0.0012;
+
+  function enableWheelZoom(container){
+    container.addEventListener("wheel", (e) => {
+      if (!network) return;
+      e.preventDefault();
+
+      const oldScale = network.getScale();
+      const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_K);
+      let newScale = oldScale * factor;
+      newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+
+      const rect = container.getBoundingClientRect();
+      const pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const canvasPos = network.DOMtoCanvas(pointer);
+
+      const viewPos = network.getViewPosition();
+      const ratio = oldScale / newScale;
+      const newViewPos = {
+        x: canvasPos.x - (canvasPos.x - viewPos.x) * ratio,
+        y: canvasPos.y - (canvasPos.y - viewPos.y) * ratio
+      };
+
+      network.moveTo({ position: newViewPos, scale: newScale, animation: false });
+    }, { passive: false });
+  }
+
+  function byId(id){ return document.getElementById(id); }
+  function showErr(msg){
+    const el = byId("errBar");
+    el.style.display = "block";
+    el.textContent = String(msg);
+  }
+  function setLoading(visible, text, percent){
+    const overlay = byId("loadingOverlay");
+    const t = byId("loadingText");
+    const bar = byId("loadingBarInner");
+    const pct = byId("loadingPct");
+    if (visible) {
+      overlay.style.display = "flex";
+      if (typeof text === "string") t.textContent = text;
+      const p = Math.max(0, Math.min(100, Number(percent ?? 0)));
+      bar.style.width = p.toFixed(1) + "%";
+      pct.textContent = p.toFixed(0) + "%";
+    } else overlay.style.display = "none";
+  }
+
+  function buildSelect(selectEl, items, placeholder){
+    selectEl.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = placeholder;
+    selectEl.appendChild(opt0);
+    items.forEach(x => {
+      const opt = document.createElement("option");
+      opt.value = x;
+      opt.textContent = x;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function fullColor(bg){
+    return {
+      background: bg,
+      border: bg,
+      highlight: { background: bg, border: bg },
+      hover:     { background: bg, border: bg }
+    };
+  }
+
+  // ======== deterministic RNG ========
+  function hashToSeed(str){
+    let h = 2166136261 >>> 0;
+    for (let i=0;i<str.length;i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(seed){
+    return function(){
+      let t = seed += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function rngFor(key){ return mulberry32(hashToSeed(String(key))); }
+
+  // ======== style guards ========
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+  function safeColor(raw, fallback){
+    const s = String(raw || "").trim();
+    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s)) return s;
+    return fallback;
+  }
+  function safeNum(raw, fallback, min, max){
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return clamp(n, min, max);
+  }
+  function normalizeNumberInput(id, fallback, min, max){
+    const el = byId(id);
+    if (!el) return fallback;
+    const val = safeNum(el.value, fallback, min, max);
+    el.value = String(Math.round(val * 1000) / 1000);
+    return val;
+  }
+  function normalizeColorInput(id, fallback){
+    const el = byId(id);
+    if (!el) return fallback;
+    const val = safeColor(el.value, fallback);
+    el.value = val;
+    return val;
+  }
+  function bindStyleInputGuards(){
+    const numCfg = [
+      ["s_db_node", () => styleCfg.database.nodeSize, 8, 80],
+      ["s_db_font", () => styleCfg.database.fontSize, 8, 40],
+      ["s_m_node",  () => styleCfg.model.nodeSize,    8, 80],
+      ["s_m_font",  () => styleCfg.model.fontSize,    8, 40],
+      ["s_f_node",  () => styleCfg.feature.nodeSize,  8, 80],
+      ["s_f_font",  () => styleCfg.feature.fontSize,  8, 40],
+    ];
+    const colorCfg = [
+      ["c_db_node", () => styleCfg.database.nodeColor],
+      ["c_db_font", () => styleCfg.database.fontColor],
+      ["c_m_node",  () => styleCfg.model.nodeColor],
+      ["c_m_font",  () => styleCfg.model.fontColor],
+      ["c_f_node",  () => styleCfg.feature.nodeColor],
+      ["c_f_font",  () => styleCfg.feature.fontColor],
+    ];
+
+    numCfg.forEach(([id, fbFn, min, max]) => {
+      const el = byId(id);
+      if (!el) return;
+      const normalize = () => normalizeNumberInput(id, fbFn(), min, max);
+      el.addEventListener("blur", normalize);
+      el.addEventListener("change", normalize);
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); el.blur(); }} );
+    });
+
+    colorCfg.forEach(([id, fbFn]) => {
+      const el = byId(id);
+      if (!el) return;
+      const normalize = () => normalizeColorInput(id, fbFn());
+      el.addEventListener("change", normalize);
+      el.addEventListener("blur", normalize);
+    });
+  }
+
+  function nodeStyleByGroup(group){
+    const g = (group === "database" || group === "model") ? group : "feature";
+    const st0 = styleCfg[g] || DEFAULT_STYLE[g];
+
+    const nodeSize = (Number.isFinite(st0.nodeSize) && st0.nodeSize > 0) ? st0.nodeSize : DEFAULT_STYLE[g].nodeSize;
+    const fontSize = (Number.isFinite(st0.fontSize) && st0.fontSize > 0) ? st0.fontSize : DEFAULT_STYLE[g].fontSize;
+
+    const nodeColor = (typeof st0.nodeColor === "string" && st0.nodeColor.startsWith("#")) ? st0.nodeColor : DEFAULT_STYLE[g].nodeColor;
+    const fontColor = (typeof st0.fontColor === "string" && st0.fontColor.startsWith("#")) ? st0.fontColor : DEFAULT_STYLE[g].fontColor;
+
+    const font = { color: fontColor, size: fontSize, strokeWidth: 2, strokeColor: "#FFFFFF" };
+
+    if (g === "database") {
+      const pad = Math.max(4, Math.min(40, Math.round(nodeSize / 2)));
+      return {
+        shape: "box",
+        color: fullColor(nodeColor),
+        font,
+        margin: pad,
+        shapeProperties: { borderRadius: 6 }
+      };
+    }
+    if (g === "model") {
+      return {
+        shape: "dot",
+        color:  fullColor(nodeColor),
+        size:   nodeSize,
+        font:   { ...font, vadjust: -40 }
+      };
+    }
+    return {
+      shape: "dot",
+      color: fullColor(nodeColor),
+      size: nodeSize,
+      font
+    };
+  }
+
+  function edgeStyle(e){
+    if (e.type === "db_model") return { color: "#AAB7B8", arrows: "to", width: 2 };
+    const w = Math.max(1, Math.min(8, (e.value || 0) / 15));
+    return { color: "#F39C12", arrows: "to", width: w };
+  }
+
+  function applyNodeStylesToAll(){
+    if (!nodesDS) return;
+    try{
+      const ids = nodesDS.getIds();
+      const updates = [];
+      for (const id of ids){
+        const n = nodesDS.get(id);
+        if (!n) continue;
+        const st = nodeStyleByGroup(n.group);
+
+        const upd = { id };
+        if (st.shape !== undefined) upd.shape = st.shape;
+        if (st.color !== undefined) upd.color = st.color;
+        if (st.font !== undefined) upd.font = st.font;
+        if (st.size !== undefined) upd.size = st.size;
+        if (st.margin !== undefined) upd.margin = st.margin;
+        if (st.shapeProperties !== undefined) upd.shapeProperties = st.shapeProperties;
+
+        updates.push(upd);
+      }
+      nodesDS.update(updates);
+      if (network) network.redraw();
+
+      // ✅ 确保渲染层级：DB 最上，Model 次之，Feature 最下
+      reorderNodesByLayer();
+    }catch(err){
+      console.error(err);
+      showErr("应用样式失败：\n" + (err?.message || String(err)));
+      alert("应用样式失败：\n" + (err?.message || String(err)));
+    }
+  }
+
+  // ======== ✅【新增】节点渲染层级控制：database > model > feature ========
+  // 说明：vis-network 没有稳定的 zIndex 选项，最稳是让 DataSet 的“顺序”决定绘制顺序：
+  //      先画底层(feature)，后画上层(database) => database 永远盖在最前
+    function reorderNodesByLayer(){
+    if (!nodesDS || !network) return;
+
+    const rank = (g) => (g === "database" ? 3 : (g === "model" ? 2 : 1));
+
+    // 取出当前所有节点（带最新状态）
+    const arr = nodesDS.get();
+
+    // 按层级排序：feature(1)先加入 -> 先画；model(2)后加入；db(3)最后加入 -> 最上层
+    arr.sort((a,b) => {
+      const ra = rank(a.group), rb = rank(b.group);
+      if (ra !== rb) return ra - rb;
+      const la = String(a.label ?? a.id), lb = String(b.label ?? b.id);
+      return la.localeCompare(lb);
+    });
+
+    // ⚠️ 关键：update 不会改顺序，必须 clear + add 重新插入
+    nodesDS.clear();
+    nodesDS.add(arr);
+
+    try { network.redraw(); } catch(e) {}
+  }
+
+  // ======== panels ========
+  function refreshLayoutAfterResize(){
+    if (!network) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try { network.setSize('100%', '100%'); } catch(e) {}
+        try { network.redraw(); } catch(e) {}
+      });
+    });
+  }
+  function setLeftVisible(visible){
+    leftVisible = !!visible;
+    const wrap = byId("wrapRoot");
+    const showBtn = byId("showLeftBtn");
+    wrap.classList.toggle("left-hidden", !leftVisible);
+    showBtn.style.display = leftVisible ? "none" : "block";
+    refreshLayoutAfterResize();
+  }
+  function setRightVisible(visible){
+    rightVisible = !!visible;
+    const box = byId("configBox");
+    const showBtn = byId("showRightBtn");
+    box.style.display = rightVisible ? "block" : "none";
+    showBtn.style.display = rightVisible ? "none" : "block";
+    refreshLayoutAfterResize();
+  }
+
+  // ======== physics ========
+  const DEFAULT_PHYS = {
+    enabled: false,
+    gravitationalConstant: -3000,
+    springLength: 200,
+    springConstant: 0.02,
+    centralGravity: 0.10,
+    avoidOverlap: 0.50
+  };
+  function currentPhysFromUI(){
+    const ge = (id) => document.getElementById(id);
+    const grav = ge("p_grav") ? Number(ge("p_grav").value) : DEFAULT_PHYS.gravitationalConstant;
+    const len  = ge("p_len")  ? Number(ge("p_len").value)  : DEFAULT_PHYS.springLength;
+    const k    = ge("p_k")    ? Number(ge("p_k").value)    : DEFAULT_PHYS.springConstant;
+    const cg   = ge("p_cg")   ? Number(ge("p_cg").value)   : DEFAULT_PHYS.centralGravity;
+    const ao   = ge("p_ao")   ? Number(ge("p_ao").value)   : DEFAULT_PHYS.avoidOverlap;
+
+    return {
+      gravitationalConstant: clamp(grav, -10000, -200),
+      springLength: clamp(len, 50, 600),
+      springConstant: clamp(k, 0.001, 0.2),
+      centralGravity: clamp(cg, 0, 1),
+      avoidOverlap: clamp(ao, 0, 1)
+    };
+  }
+
+  function freezeGraphHard(){
+    if (!network || !nodesDS) return;
+    const ids = nodesDS.getIds();
+    const positions = network.getPositions(ids);
+    const updates = [];
+    for (const id of ids) {
+      const p = positions[id];
+      if (!p) continue;
+      updates.push({ id, x: p.x, y: p.y, fixed: { x: true, y: true } });
+    }
+    if (updates.length) nodesDS.update(updates);
+    try { network.stopSimulation(); } catch(e) {}
+    try { network.setOptions({ physics: { enabled: false } }); } catch(e) {}
+    try { network.redraw(); } catch(e) {}
+  }
+
+  function unfreezeGraph(){
+    if (!nodesDS) return;
+    const ids = nodesDS.getIds();
+    nodesDS.update(ids.map(id => ({ id, fixed: { x: false, y: false } })));
+  }
+
+  function setPhysicsEnabled(enabled, { userAction = false } = {}){
+    physicsEnabled = !!enabled;
+
+    const left = byId("togglePhysics");
+    const right = byId("p_enabled");
+    if (left) left.checked = physicsEnabled;
+    if (right) right.checked = physicsEnabled;
+
+    if (!network) return;
+
+    if (physicsEnabled) {
+      if (userAction) autoFreezePending = false;
+      unfreezeGraph();
+      const p = currentPhysFromUI();
+      network.setOptions({
+        physics: {
+          enabled: true,
+          stabilization: { iterations: 900, updateInterval: 25 },
+          barnesHut: {
+            gravitationalConstant: p.gravitationalConstant,
+            centralGravity: p.centralGravity,
+            springConstant: p.springConstant,
+            springLength: p.springLength,
+            avoidOverlap: p.avoidOverlap
+          }
+        }
+      });
+      try { network.startSimulation(); } catch(e) {}
+    } else {
+      freezeGraphHard();
+    }
+  }
+
+  function mountPhysicsPanel(){
+    const box = byId("configInner");
+    if (!box) return;
+
+    box.innerHTML = `
+      <div class="cfgRow">
+        <div class="topline">
+          <span>Physics Enabled</span>
+          <input id="p_enabled" type="checkbox" />
+        </div>
+        <div class="mini">开启仅用于拖动排版；布局模式切换是确定性算法。</div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="cfgRow">
+        <div class="topline"><span>吸引/排斥（grav）</span><span id="v_grav"></span></div>
+        <input id="p_grav" type="range" min="-10000" max="-200" step="50" />
+        <div class="mini">越负越“聚拢”（太聚会挤）。</div>
+      </div>
+
+      <div class="cfgRow">
+        <div class="topline"><span>节点间距（springLength）</span><span id="v_len"></span></div>
+        <input id="p_len" type="range" min="50" max="600" step="10" />
+        <div class="mini">越大越疏，越小越紧。</div>
+      </div>
+
+      <div class="cfgRow">
+        <div class="topline"><span>弹性强度（springConst）</span><span id="v_k"></span></div>
+        <input id="p_k" type="range" min="0.001" max="0.2" step="0.001" />
+        <div class="mini">越大越“硬”，收敛更快但更抖。</div>
+      </div>
+
+      <div class="cfgRow">
+        <div class="topline"><span>中心引力（centralGravity）</span><span id="v_cg"></span></div>
+        <input id="p_cg" type="range" min="0" max="1" step="0.01" />
+        <div class="mini">越大越往中心收拢（太大容易堆）。</div>
+      </div>
+
+      <div class="cfgRow">
+        <div class="topline"><span>避免重叠（avoidOverlap）</span><span id="v_ao"></span></div>
+        <input id="p_ao" type="range" min="0" max="1" step="0.05" />
+        <div class="mini">越大越不压在一起（可能更散）。</div>
+      </div>
+
+      <div class="cfgBtns">
+        <button id="p_apply">应用</button>
+        <button id="p_stabilize">重新稳定化</button>
+      </div>
+    `;
+
+    const $ = (id) => document.getElementById(id);
+
+    $("p_grav").value = DEFAULT_PHYS.gravitationalConstant;
+    $("p_len").value  = DEFAULT_PHYS.springLength;
+    $("p_k").value    = DEFAULT_PHYS.springConstant;
+    $("p_cg").value   = DEFAULT_PHYS.centralGravity;
+    $("p_ao").value   = DEFAULT_PHYS.avoidOverlap;
+
+    function refreshValueLabels(){
+      $("v_grav").textContent = String($("p_grav").value);
+      $("v_len").textContent  = String($("p_len").value);
+      $("v_k").textContent    = Number($("p_k").value).toFixed(3);
+      $("v_cg").textContent   = Number($("p_cg").value).toFixed(2);
+      $("v_ao").textContent   = Number($("p_ao").value).toFixed(2);
+    }
+    ["p_grav","p_len","p_k","p_cg","p_ao"].forEach(id => $(id).addEventListener("input", refreshValueLabels));
+    refreshValueLabels();
+
+    $("p_enabled").checked = physicsEnabled;
+    $("p_enabled").onchange = () => setPhysicsEnabled($("p_enabled").checked, { userAction: true });
+
+    $("p_apply").onclick = () => {
+      if (physicsEnabled) setPhysicsEnabled(true, { userAction: false });
+      network.redraw();
+      reorderNodesByLayer();
+    };
+
+    $("p_stabilize").onclick = () => {
+      autoFreezePending = false;
+      setPhysicsEnabled(true, { userAction: false });
+      setLoading(true, "重新稳定化布局中…", 10);
+      try { network.stabilize(); } catch(e) {}
+      setTimeout(() => setLoading(false), 8000);
+    };
+  }
+
+  function setStyleInputsFromCfg(){
+    byId("c_db_node").value = styleCfg.database.nodeColor;
+    byId("s_db_node").value = styleCfg.database.nodeSize;
+    byId("c_db_font").value = styleCfg.database.fontColor;
+    byId("s_db_font").value = styleCfg.database.fontSize;
+
+    byId("c_m_node").value = styleCfg.model.nodeColor;
+    byId("s_m_node").value = styleCfg.model.nodeSize;
+    byId("c_m_font").value = styleCfg.model.fontColor;
+    byId("s_m_font").value = styleCfg.model.fontSize;
+
+    byId("c_f_node").value = styleCfg.feature.nodeColor;
+    byId("s_f_node").value = styleCfg.feature.nodeSize;
+    byId("c_f_font").value = styleCfg.feature.fontColor;
+    byId("s_f_font").value = styleCfg.feature.fontSize;
+  }
+
+  function readStyleCfgFromInputs(){
+    styleCfg.database.nodeColor = normalizeColorInput("c_db_node", styleCfg.database.nodeColor);
+    styleCfg.database.nodeSize  = normalizeNumberInput("s_db_node", styleCfg.database.nodeSize, 8, 80);
+    styleCfg.database.fontColor = normalizeColorInput("c_db_font", styleCfg.database.fontColor);
+    styleCfg.database.fontSize  = normalizeNumberInput("s_db_font", styleCfg.database.fontSize, 8, 40);
+
+    styleCfg.model.nodeColor = normalizeColorInput("c_m_node", styleCfg.model.nodeColor);
+    styleCfg.model.nodeSize  = normalizeNumberInput("s_m_node", styleCfg.model.nodeSize, 8, 80);
+    styleCfg.model.fontColor = normalizeColorInput("c_m_font", styleCfg.model.fontColor);
+    styleCfg.model.fontSize  = normalizeNumberInput("s_m_font", styleCfg.model.fontSize, 8, 40);
+
+    styleCfg.feature.nodeColor = normalizeColorInput("c_f_node", styleCfg.feature.nodeColor);
+    styleCfg.feature.nodeSize  = normalizeNumberInput("s_f_node", styleCfg.feature.nodeSize, 8, 80);
+    styleCfg.feature.fontColor = normalizeColorInput("c_f_font", styleCfg.feature.fontColor);
+    styleCfg.feature.fontSize  = normalizeNumberInput("s_f_font", styleCfg.feature.fontSize, 8, 40);
+  }
+
+  // ======== ✅【新增】允许拖动“fixed 节点”的最小补丁（不改你其它逻辑） ========
+  function enableManualDragForFixedNodes(){
+    if (!network || !nodesDS) return;
+
+    // 显式允许拖拽节点（默认 true，这里写上更稳）
+    try { network.setOptions({ interaction: { dragNodes: true } }); } catch(e) {}
+
+    network.on("dragStart", (params) => {
+      if (!params || !params.nodes || params.nodes.length === 0) return;
+      // 临时解锁：fixed 节点否则拖不动
+      nodesDS.update(params.nodes.map(id => ({ id, fixed: { x: false, y: false } })));
+    });
+
+    network.on("dragEnd", (params) => {
+      if (!params || !params.nodes || params.nodes.length === 0) return;
+      // 写回坐标并重新锁定，保持“稳定不爆炸”
+      const pos = network.getPositions(params.nodes);
+      const updates = params.nodes.map(id => ({
+        id,
+        x: pos[id]?.x,
+        y: pos[id]?.y,
+        fixed: { x: true, y: true }
+      }));
+      nodesDS.update(updates);
+
+      // ✅ 拖完也保持层级
+      reorderNodesByLayer();
+    });
+  }
+
+  // 当前筛选的原始节点/边缓存（用于 toggleShadowShared 重新渲染当前视图）
+  let currentOriginalNodes = [];
+  let currentOriginalEdges = [];
+
+  // ======== 核心：渲染端“合并同名节点”（模型/特征共用节点） ========
+  // 规则：同 group + 同 label => 合并为一个节点（id 采用 “g:<group>:<label>”）
+  function mergedId(group, label){
+    return `g:${group}:${String(label ?? "").trim()}`;
+  }
+
+  function mergeNodesEdgesByLabel(nodesArr, edgesArr){
+    const nodeByKey = new Map(); // key -> node
+    const idMap = new Map();     // oldId -> newId
+
+    // 合并节点
+    for (const n of nodesArr){
+      const key = mergedId(n.group, n.label);
+      if (!nodeByKey.has(key)){
+        nodeByKey.set(key, {
+          id: key,
+          label: n.label,
+          title: n.title,
+          group: n.group
+        });
+      }
+      idMap.set(n.id, key);
+    }
+
+    // 重写边
+    const outEdges = [];
+    const seen = new Set(); // 去重：from|to|type
+    for (const e of edgesArr){
+      const from = idMap.get(e.from) || e.from;
+      const to   = idMap.get(e.to)   || e.to;
+      const type = e.type;
+
+      if (from === to) continue;
+      const k = `${from}|${to}|${type}`;
+      // db_model 可以累加 value；model_feature 可以累加 value
+      if (seen.has(k)){
+        const last = outEdges.find(x => x._k === k);
+        if (last){
+          const v0 = Number(last.value)||0, v1 = Number(e.value)||0;
+          last.value = v0 + v1;
+          last.label = String(Math.round(last.value));
+          last.title = (type === "db_model") ? `使用次数: ${last.value}` : `使用频率: ${last.value}`;
+        }
+        continue;
+      }
+      seen.add(k);
+      outEdges.push({
+        ...e,
+        from, to,
+        value: Number(e.value)||0,
+        label: String(Math.round(Number(e.value)||0)),
+        title: e.title ?? "",
+        _k: k
+      });
+    }
+
+    const outNodes = Array.from(nodeByKey.values());
+    return { nodes: outNodes, edges: outEdges, idMap };
+  }
+
+  // ======== 影子共享特征（保留功能） ========
+  function detectSharedOriginal(nodesArr, edgesArr){
+    const m = new Map(); // fid -> Set(models)
+    for (const e of edgesArr){
+      if (e.type !== "model_feature") continue;
+      const fid = e.to, mid = e.from;
+      if (!m.has(fid)) m.set(fid, new Set());
+      m.get(fid).add(mid);
+    }
+    const shared = new Set();
+    for (const [fid, mids] of m.entries()){
+      if (mids.size >= 2) shared.add(fid);
+    }
+    return { shared };
+  }
+
+  function prepareRenderData(nodesArr, edgesArr){
+    if (!SHADOW_SHARED_FEATURES){
+      return { nodes: nodesArr, edges: edgesArr };
+    }
+
+    const { shared } = detectSharedOriginal(nodesArr, edgesArr);
+
+    const nodeById = new Map(nodesArr.map(n => [n.id, n]));
+    const outNodes = [];
+    const outEdges = [];
+
+    for (const n of nodesArr){
+      if (n.group === "feature" && shared.has(n.id)){
+        continue; // 共享 feature 用影子代替
+      }
+      outNodes.push({ ...n });
+    }
+
+    const shadowSet = new Set();
+
+    for (const e of edgesArr){
+      if (e.type !== "model_feature"){
+        outEdges.push({ ...e });
+        continue;
+      }
+
+      const fid = e.to, mid = e.from;
+
+      if (!shared.has(fid)){
+        outEdges.push({ ...e });
+        continue;
+      }
+
+      const sid = `shadow:${fid}:${mid}`;
+      if (!shadowSet.has(sid)){
+        shadowSet.add(sid);
+        const base = nodeById.get(fid) || { id: fid, label: String(fid), group: "feature" };
+        outNodes.push({
+          id: sid,
+          label: base.label,
+          title: (base.title || base.label || "") + "（共享特征-按模型复制）",
+          group: "feature"
+        });
+      }
+
+      outEdges.push({ ...e, to: sid });
+    }
+
+    return { nodes: outNodes, edges: outEdges };
+  }
+
+  // ======== ✅ 关键：两种“稳定不爆炸”的布局算法 ========
+  function ensureAspectByScalingX(targetAspect = 2.0){
+    if (!nodesDS || !network) return;
+    const ids = nodesDS.getIds();
+    const pos = network.getPositions(ids);
+
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    let cx=0,cy=0,cnt=0;
+    for (const id of ids){
+      const p = pos[id]; if (!p) continue;
+      minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x);
+      minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y);
+      cx+=p.x; cy+=p.y; cnt++;
+    }
+    if (!cnt) return;
+    cx/=cnt; cy/=cnt;
+
+    const w = Math.max(1e-6, maxX-minX);
+    const h = Math.max(1e-6, maxY-minY);
+    if (w/h >= targetAspect) return;
+
+    const scaleX = (targetAspect*h)/w;
+    const updates = [];
+    for (const id of ids){
+      const p = pos[id]; if (!p) continue;
+      const x = cx + (p.x - cx) * scaleX;
+      updates.push({ id, x, y: p.y });
+    }
+    nodesDS.update(updates);
+    network.redraw();
+  }
+
+  // 层级布局（横向三列）：DB -> Model -> Feature
+  function layoutHierarchicalStable(){
+    if (!nodesDS || !edgesDS || !network) return;
+
+    const nodes = nodesDS.get();
+    const edges = edgesDS.get();
+
+    const dbs = nodes.filter(n => n.group === "database").map(n => n.id);
+    const models = nodes.filter(n => n.group === "model").map(n => n.id);
+    const feats  = nodes.filter(n => n.group === "feature").map(n => n.id);
+
+    // X 三列（横向）
+    const X_DB = -1100;
+    const X_M  =  0;
+    const X_F0 =  1100;
+
+    // Y 间距
+    const DB_GAP = 260;
+    const M_GAP  = 180;
+    const F_GAP  = 60;   // 特征多，行距小一点
+    const F_COL_GAP = 220;
+
+    // 1) DB 排一列
+    const updates = [];
+    const dbY = new Map();
+    const dbSorted = [...dbs].sort();
+    const dbStartY = -(dbSorted.length-1)*DB_GAP/2;
+    for (let i=0;i<dbSorted.length;i++){
+      const id = dbSorted[i];
+      const y = dbStartY + i*DB_GAP;
+      dbY.set(id, y);
+      updates.push({ id, x: X_DB, y });
+    }
+
+    // 2) Model 的 Y 用连接到 DB 的 Y 均值（减少交叉），再均匀拉开
+    const modelY0 = new Map();
+    for (const mid of models){
+      let s=0,c=0;
+      for (const e of edges){
+        if (e.type !== "db_model") continue;
+        if (e.to !== mid) continue;
+        const y = dbY.get(e.from);
+        if (Number.isFinite(y)){ s+=y; c++; }
+      }
+      modelY0.set(mid, c? (s/c) : 0);
+    }
+    const modelsSorted = [...models].sort((a,b) => (modelY0.get(a)-modelY0.get(b)) || (a>b?1:-1));
+    const mStartY = -(modelsSorted.length-1)*M_GAP/2;
+    const modelY = new Map();
+    for (let i=0;i<modelsSorted.length;i++){
+      const id = modelsSorted[i];
+      const y = mStartY + i*M_GAP;
+      modelY.set(id, y);
+      updates.push({ id, x: X_M, y });
+    }
+
+    // 3) Feature 的目标 Y：连接到 model 的加权均值（减少交叉）
+    const featY0 = new Map();
+    const featW  = new Map();
+    for (const fid of feats){
+      featY0.set(fid, 0);
+      featW.set(fid, 0);
+    }
+    for (const e of edges){
+      if (e.type !== "model_feature") continue;
+      const mid = e.from, fid = e.to;
+      const my = modelY.get(mid);
+      if (!Number.isFinite(my)) continue;
+      const w = Math.max(1, Number(e.value)||1);
+      featY0.set(fid, (featY0.get(fid)||0) + my*w);
+      featW.set(fid,  (featW.get(fid)||0)  + w);
+    }
+    const featTarget = feats.map(fid => {
+      const w = featW.get(fid)||0;
+      const y = w ? (featY0.get(fid)/w) : 0;
+      return { fid, y };
+    }).sort((a,b) => (a.y-b.y) || (a.fid>b.fid?1:-1));
+
+    // 特征很多：做多列（避免图太高）
+    const maxRows = 110;
+    const cols = Math.max(1, Math.ceil(featTarget.length / maxRows));
+    const rows = Math.ceil(featTarget.length / cols);
+
+    const fStartY = -(rows-1)*F_GAP/2;
+    const fStartX = X_F0 - (cols-1)*F_COL_GAP/2;
+
+    for (let i=0;i<featTarget.length;i++){
+      const col = Math.floor(i/rows);
+      const row = i % rows;
+      const x = fStartX + col*F_COL_GAP;
+      const y = fStartY + row*F_GAP;
+      updates.push({ id: featTarget[i].fid, x, y });
+    }
+
+    // 固定
+    nodesDS.update(updates.map(u => ({...u, fixed:{x:true,y:true}})));
+    network.redraw();
+
+    // 2:1 拉伸
+    ensureAspectByScalingX(TARGET_ASPECT);
+    freezeGraphHard();
+
+    // ✅ 布局后再确保层级
+    reorderNodesByLayer();
+  }
+
+  // 聚类环形：模型在椭圆上；特征按“最大 value”归属模型，多环围绕（稳定）
+  function layoutClusterRingStable(){
+    if (!nodesDS || !edgesDS || !network) return;
+
+    const nodes = nodesDS.get();
+    const edges = edgesDS.get();
+
+    const dbs = nodes.filter(n => n.group === "database").map(n => n.id);
+    const models = nodes.filter(n => n.group === "model").map(n => n.id);
+    const feats  = nodes.filter(n => n.group === "feature").map(n => n.id);
+
+    // 1) 模型放椭圆
+    const m = models.length || 1;
+    const RX = 1100 + Math.min(1200, Math.sqrt(m)*120);
+    const RY =  520 + Math.min( 900, Math.sqrt(m)*90);
+
+    const modelPos = new Map();
+    const modelsSorted = [...models].sort();
+    for (let i=0;i<modelsSorted.length;i++){
+      const mid = modelsSorted[i];
+      const ang = (i/m)*Math.PI*2;
+      const x = RX*Math.cos(ang);
+      const y = RY*Math.sin(ang);
+      modelPos.set(mid, {x,y,ang});
+    }
+
+    // 2) Feature 归属：找最大 value 的 model
+    featureOwner = new Map(); // featureId -> modelId
+    const perModel = new Map(); // modelId -> [{fid,w}]
+    const featBest = new Map(); // fid -> {mid,w}
+
+    for (const e of edges){
+      if (e.type !== "model_feature") continue;
+      const mid = e.from, fid = e.to;
+      const w = Math.max(1, Number(e.value)||1);
+      const prev = featBest.get(fid);
+      if (!prev || w > prev.w){
+        featBest.set(fid, {mid,w});
+      }
+    }
+    for (const fid of feats){
+      const best = featBest.get(fid);
+      if (!best) continue;
+      featureOwner.set(fid, best.mid);
+      if (!perModel.has(best.mid)) perModel.set(best.mid, []);
+      perModel.get(best.mid).push({ fid, w: best.w });
+    }
+
+    // 3) DB 放到其连接模型的“外侧”，避免压在中间
+    const dbPos = new Map();
+    const dbModels = new Map(); // db -> Set(models)
+    for (const e of edges){
+      if (e.type !== "db_model") continue;
+      if (!dbModels.has(e.from)) dbModels.set(e.from, new Set());
+      dbModels.get(e.from).add(e.to);
+    }
+    for (const db of dbs){
+      const mids = dbModels.get(db) ? Array.from(dbModels.get(db)) : [];
+      if (!mids.length){
+        dbPos.set(db, {x: -RX-500, y: 0});
+        continue;
+      }
+      let sx=0, sy=0, c=0;
+      for (const mid of mids){
+        const p = modelPos.get(mid);
+        if (!p) continue;
+        sx += p.x; sy += p.y; c++;
+      }
+      sx/=Math.max(1,c); sy/=Math.max(1,c);
+
+      // 往外推一点（沿着从中心指向它的方向）
+      const len = Math.hypot(sx,sy) || 1;
+      const ux = sx/len, uy = sy/len;
+      const x = sx + ux*(420);
+      const y = sy + uy*(420);
+      dbPos.set(db, {x,y});
+    }
+
+    // 4) 特征围绕归属模型多环
+    const updates = [];
+
+    // model
+    for (const mid of modelsSorted){
+      const p = modelPos.get(mid);
+      updates.push({ id: mid, x: p.x, y: p.y });
+    }
+    // db
+    for (const db of dbs){
+      const p = dbPos.get(db) || {x:-RX-500,y:0};
+      updates.push({ id: db, x: p.x, y: p.y });
+    }
+
+    const featureSize = (styleCfg?.feature?.nodeSize ?? 22);
+    const featureFont = (styleCfg?.feature?.fontSize ?? 12);
+
+    const MIN_ARC = Math.max(28, featureFont*2.0 + featureSize*0.8);
+    const BASE_RING_GAP = Math.max(68, featureSize*2.2);
+
+    for (const mid of modelsSorted){
+      const mp = modelPos.get(mid);
+      if (!mp) continue;
+
+      const arr = (perModel.get(mid) || []).slice().sort((a,b)=>b.w-a.w);
+      if (!arr.length) continue;
+
+      const count = arr.length;
+      const ringGap = BASE_RING_GAP + Math.min(90, Math.sqrt(count)*3.0);
+      let r0 = 170 + Math.min(260, Math.sqrt(count)*9);
+      const MAX_RINGS = 14;
+
+      // 预估每圈容量
+      const rings = [];
+      let remaining = count;
+      let r = r0;
+      for (let k=0;k<MAX_RINGS && remaining>0;k++){
+        const cap = Math.max(10, Math.floor((2*Math.PI*r)/MIN_ARC));
+        rings.push({r,cap});
+        remaining -= cap;
+        r += ringGap;
+      }
+      if (remaining > 0 && rings.length) rings[rings.length-1].cap += remaining;
+
+      // 相位：用模型角度 + 稳定hash
+      const phase = mp.ang + ((hashToSeed(mid)%360)/360)*Math.PI*2;
+
+      let idx=0;
+      for (let ri=0; ri<rings.length; ri++){
+        const rr = rings[ri].r;
+        const take = Math.min(rings[ri].cap, count-idx);
+        if (take<=0) continue;
+
+        for (let i=0;i<take;i++){
+          const it = arr[idx++];
+          const fid = it.fid;
+
+          const t = (i/take)*Math.PI*2;
+          const rng = rngFor(`cluster:${mid}:${fid}`);
+
+          const jitterA = (ri===0) ? (rng()-0.5)*(Math.PI/90) : (rng()-0.5)*(Math.PI/18);
+          const jitterR = (ri===0) ? (rng()-0.5)*(ringGap*0.08) : (rng()-0.5)*(ringGap*0.18);
+
+          const ang = phase + t + jitterA;
+          const x = mp.x + (rr + jitterR) * Math.cos(ang);
+          const y = mp.y + (rr + jitterR) * Math.sin(ang);
+
+          updates.push({ id: fid, x, y });
+        }
+      }
+    }
+
+    // 对没有归属的 feature（极少数）放到右侧一列
+    const placed = new Set(featureOwner.keys());
+    const unplaced = feats.filter(fid => !placed.has(fid));
+    if (unplaced.length){
+      const x = RX + 900;
+      const gap = 40;
+      const y0 = -(unplaced.length-1)*gap/2;
+      for (let i=0;i<unplaced.length;i++){
+        updates.push({ id: unplaced[i], x, y: y0 + i*gap });
+      }
+    }
+
+    nodesDS.update(updates.map(u => ({...u, fixed:{x:true,y:true}})));
+    network.redraw();
+
+    ensureAspectByScalingX(TARGET_ASPECT);
+    freezeGraphHard();
+
+    // ✅ 布局后再确保层级
+    reorderNodesByLayer();
+  }
+
+  function applyLayoutNow(){
+    if (!network || !nodesDS || !edgesDS) return;
+
+    unfreezeGraph();
+    try { network.setOptions({ physics: { enabled: false } }); } catch(e){}
+
+    if (layoutMode === "cluster") layoutClusterRingStable();
+    else layoutHierarchicalStable();
+
+    try { network.fit({ animation: { duration: 320 } }); } catch(e) {}
+    freezeGraphHard();
+
+    // ✅ 每次应用布局都保持层级
+    reorderNodesByLayer();
+  }
+
+  // ======== export full PNG (white, 2:1, safe padding) ========
+  function exportFullPNG(){
+    try{
+      if (!network || !nodesDS || !edgesDS) return;
+
+      const W = 4800;
+      const H = 2400;
+      const SAFE_SCALE = 0.90;
+
+      const ids = nodesDS.getIds();
+      const pos = network.getPositions(ids);
+
+      const nodes = nodesDS.get().map(n => {
+        const p = pos[n.id];
+        return {
+          ...n,
+          x: p ? p.x : n.x,
+          y: p ? p.y : n.y,
+          fixed: { x: true, y: true }
+        };
+      });
+
+      const edges = edgesDS.get().map(e => ({ ...e }));
+
+      const tmp = document.createElement("div");
+      tmp.style.position = "fixed";
+      tmp.style.left = "-10000px";
+      tmp.style.top = "-10000px";
+      tmp.style.width = W + "px";
+      tmp.style.height = H + "px";
+      tmp.style.background = "#ffffff";
+      document.body.appendChild(tmp);
+
+      const tmpNet = new vis.Network(
+        tmp,
+        { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) },
+        {
+          layout: { improvedLayout: false, randomSeed: 42 },
+          interaction: { hover: false, dragView: false, zoomView: false },
+          physics: { enabled: false }
+        }
+      );
+
+      let stage = 0;
+      const cleanup = () => {
+        try { tmpNet.destroy(); } catch(e) {}
+        try { tmp.remove(); } catch(e) {}
+      };
+
+      tmpNet.on("afterDrawing", () => {
+        if (stage === 0) {
+          stage = 1;
+          tmpNet.fit({ animation: false });
+          requestAnimationFrame(() => {
+            try { tmpNet.moveTo({ scale: tmpNet.getScale() * SAFE_SCALE, animation: false }); } catch(e) {}
+            stage = 2;
+            tmpNet.redraw();
+          });
+          return;
+        }
+        if (stage === 2) {
+          stage = 3;
+          requestAnimationFrame(() => {
+            try {
+              const srcCanvas = tmpNet.canvas?.frame?.canvas;
+              if (!srcCanvas) {
+                cleanup();
+                alert("导出失败：找不到 canvas。");
+                return;
+              }
+
+              const out = document.createElement("canvas");
+              out.width = srcCanvas.width;
+              out.height = srcCanvas.height;
+
+              const ctx = out.getContext("2d");
+              ctx.fillStyle = "#FFFFFF";
+              ctx.fillRect(0, 0, out.width, out.height);
+              ctx.drawImage(srcCanvas, 0, 0);
+
+              const url = out.toDataURL("image/png");
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "knowledge-graph-full-2to1.png";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            } finally {
+              cleanup();
+            }
+          });
+        }
+      });
+
+      tmpNet.redraw();
+      setTimeout(() => { if (stage < 3) cleanup(); }, 8000);
+
+    }catch(err){
+      console.error(err);
+      showErr("导出失败：\n" + (err?.message || String(err)));
+      alert("导出失败：\n" + (err?.message || String(err)));
+    }
+  }
+
+  // ======== 点击高亮邻居 ========
+  function bindClickHighlight(){
+    if (!network || !nodesDS || !edgesDS) return;
+    network.on("click", (params) => {
+      if (!params.nodes || params.nodes.length === 0) {
+        nodesDS.forEach(node => nodesDS.update({id: node.id, opacity: 1}));
+        edgesDS.forEach(edge => edgesDS.update({id: edge.id, opacity: 1}));
+        return;
+      }
+      const selected = params.nodes[0];
+      const connected = network.getConnectedNodes(selected);
+      const keep = new Set([selected, ...connected]);
+
+      nodesDS.forEach(node => nodesDS.update({ id: node.id, opacity: keep.has(node.id) ? 1 : 0.15 }));
+      edgesDS.forEach(edge => {
+        const on = keep.has(edge.from) && keep.has(edge.to);
+        edgesDS.update({ id: edge.id, opacity: on ? 1 : 0.10 });
+      });
+
+      // ✅ 高亮不改变层级，但这里补一刀也无害
+      reorderNodesByLayer();
+    });
+  }
+
+  // ======== render ========
+  function renderGraph(nodesArrOriginal, edgesArrOriginal){
+    const container = byId("mynetwork");
+    if (!container) throw new Error("找不到 #mynetwork 容器");
+    if (!window.vis || !vis.Network) throw new Error("vis-network 未加载成功（vis.Network 不存在）");
+
+    // 记录当前筛选范围（原始）用于 toggleShadowShared
+    currentOriginalNodes = nodesArrOriginal;
+    currentOriginalEdges = edgesArrOriginal;
+
+    setLoading(true, "构建图数据…", 20);
+
+    requestAnimationFrame(() => {
+      try{
+        // 1) ✅ 合并同名节点（模型/特征共用）
+        const merged = mergeNodesEdgesByLabel(nodesArrOriginal, edgesArrOriginal);
+        let nodesMerged = merged.nodes;
+        let edgesMerged = merged.edges;
+
+        // 2) 影子共享特征（可选）
+        const prepared = prepareRenderData(nodesMerged, edgesMerged);
+        const nodesArr = prepared.nodes;
+        const edgesArr = prepared.edges;
+
+        nodesDS = new vis.DataSet(nodesArr.map(n => ({
+          id: n.id,
+          label: n.label,
+          title: n.title,
+          group: n.group,
+          ...nodeStyleByGroup(n.group),
+        })));
+
+        edgesDS = new vis.DataSet(edgesArr.map((e, idx) => ({
+          id: e.id ?? `${e.from}->${e.to}:${e.type ?? ""}:${idx}`,
+          from: e.from,
+          to: e.to,
+          type: e.type,
+          value: e.value,
+          label: String(e.label ?? ""),
+          title: e.title ?? "",
+          ...edgeStyle(e),
+          smooth: (e.type === "model_feature") ? { enabled: true, type: "continuous", roundness: 0.0 } : undefined
+        })));
+
+        setLoading(true, "初始化网络…", 30);
+
+        requestAnimationFrame(() => {
+          try{
+            const data = { nodes: nodesDS, edges: edgesDS };
+            const options = {
+              layout: { improvedLayout: false, randomSeed: 42 },
+              interaction: { hover: true, multiselect: true, zoomView: true, dragView: true, zoomSpeed: 0.6 },
+              physics: { enabled: physicsEnabled }
+            };
+
+            network = new vis.Network(container, data, options);
+
+            enableWheelZoom(container);
+            mountPhysicsPanel();
+
+            // ✅ 启用“拖动 fixed 节点”
+            enableManualDragForFixedNodes();
+
+            // 默认冻结
+            setPhysicsEnabled(physicsEnabled, { userAction: false });
+            if (!physicsEnabled) freezeGraphHard();
+
+            bindClickHighlight();
+
+            // ✅ 先确保一次层级（DB 最上）
+            reorderNodesByLayer();
+
+            // ✅ 应用当前布局模式（稳定）
+            setLoading(true, "应用布局模式…", 70);
+            requestAnimationFrame(() => {
+              applyLayoutNow();
+              // ✅ 布局后再确保层级（更稳）
+              reorderNodesByLayer();
+              setLoading(false);
+            });
+
+          }catch(err){
+            setLoading(false);
+            showErr("初始化网络失败：\n" + (err?.message || String(err)));
+            alert("初始化网络失败：\n" + (err?.message || String(err)));
+          }
+        });
+
+      }catch(err){
+        setLoading(false);
+        showErr("构建图数据失败：\n" + (err?.message || String(err)));
+        alert("构建图数据失败：\n" + (err?.message || String(err)));
+      }
+    });
+  }
+
+  // ======== filter ========
+  function applyFilter(){
+    const db = byId("dbSelect").value;
+    const model = byId("modelSelect").value;
+
+    if (!db && !model){
+      renderGraph(allNodes, allEdges);
+      return;
+    }
+
+    const keep = new Set();
+
+    if (db){
+      const dbNode = allNodes.find(n => n.group==="database" && n.label===db);
+      const dbId = dbNode?.id;
+      if (dbId) {
+        keep.add(dbId);
+        allEdges.forEach(e => { if (e.from === dbId) keep.add(e.to); });
+        const keepModels = new Set([...keep]);
+        allEdges.forEach(e => {
+          if (keepModels.has(e.from) && e.type === "model_feature") keep.add(e.to);
+        });
+      }
+    }
+
+    if (model){
+      const mNode = allNodes.find(n => n.group==="model" && n.label===model);
+      const mId = mNode?.id;
+      if (mId) {
+        keep.add(mId);
+        allEdges.forEach(e => {
+          if (e.to === mId && e.type === "db_model") keep.add(e.from);
+          if (e.from === mId && e.type === "model_feature") keep.add(e.to);
+        });
+      }
+    }
+
+    const nodesFiltered = allNodes.filter(n => keep.has(n.id));
+    const edgesFiltered = allEdges.filter(e => keep.has(e.from) && keep.has(e.to));
+
+    renderGraph(nodesFiltered, edgesFiltered);
+  }
+
+  function resetAll(){
+    byId("dbSelect").value = "";
+    byId("modelSelect").value = "";
+    byId("searchInput").value = "";
+    renderGraph(allNodes, allEdges);
+  }
+
+  function searchAndFocus(){
+    const q = byId("searchInput").value.trim().toLowerCase();
+    if (!q) return;
+
+    const all = nodesDS.get();
+    const hit = all.find(n => (n.label || "").toLowerCase().includes(q));
+    if (!hit) { alert("未找到匹配节点（当前筛选范围内）"); return; }
+
+    network.selectNodes([hit.id]);
+    network.focus(hit.id, { scale: Math.max(network.getScale(), 1.8), animation: { duration: 500 } });
+  }
+
+  function toggleLabels(){
+    const show = byId("toggleLabels").checked;
+    nodesDS.forEach(n => nodesDS.update({ id: n.id, label: show ? n.label : "" }));
+    // ✅ 改标签后也保持层级
+    reorderNodesByLayer();
+  }
+
+  // ======== main ========
+  async function main(){
+    try {
+      setLoading(true, "加载 graph_data.json…", 10);
+      await nextFrame();
+
+      const url = new URL("./graph_data.json", window.location.href).href;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`graph_data.json 加载失败: HTTP ${res.status}`);
+
+      setLoading(true, "读取 graph_data.json…", 14);
+      await nextFrame();
+      const txt = await res.text();
+
+      setLoading(true, "解析 JSON…", 18);
+      await nextFrame();
+      rawData = JSON.parse(txt);
+
+      allNodes = rawData.nodes || [];
+      allEdges = rawData.edges || [];
+      if (allNodes.length === 0) throw new Error("graph_data.json 里 nodes=0（没有节点）");
+
+      buildSelect(byId("dbSelect"), (rawData.meta?.databases || []), "（不选择）");
+      buildSelect(byId("modelSelect"), (rawData.meta?.models || []), "（不选择）");
+
+      byId("stats").textContent =
+        `nodes=${allNodes.length}, edges=${allEdges.length}, ` +
+        `databases=${rawData.meta?.databases?.length || 0}, models=${rawData.meta?.models?.length || 0}, ` +
+        `features=${rawData.meta?.features_count || 0}`;
+
+      byId("applyFilterBtn").onclick = applyFilter;
+      byId("resetBtn").onclick = resetAll;
+      byId("searchBtn").onclick = searchAndFocus;
+      byId("fitBtn").onclick = () => network && network.fit({ animation: { duration: 500 } });
+      byId("exportBtn").onclick = exportFullPNG;
+
+      byId("toggleLabels").onchange = toggleLabels;
+
+      byId("togglePhysics").onchange = (e) => {
+        setPhysicsEnabled(!!e.target.checked, { userAction: true });
+        // ✅ 切换 physics 后也确保层级
+        reorderNodesByLayer();
+      };
+
+      byId("toggleShadowShared").onchange = (e) => {
+        SHADOW_SHARED_FEATURES = !!e.target.checked;
+        renderGraph(
+          currentOriginalNodes.length ? currentOriginalNodes : allNodes,
+          currentOriginalEdges.length ? currentOriginalEdges : allEdges
+        );
+      };
+
+      // ✅ 布局模式切换
+      byId("layoutMode").onchange = (e) => {
+        layoutMode = e.target.value || "hier";
+        if (network && nodesDS && edgesDS) applyLayoutNow();
+      };
+      byId("applyLayoutBtn").onclick = () => {
+        layoutMode = byId("layoutMode").value || "hier";
+        if (network && nodesDS && edgesDS) applyLayoutNow();
+      };
+
+      byId("searchInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") searchAndFocus();
+      });
+
+      setStyleInputsFromCfg();
+      bindStyleInputGuards();
+
+      byId("applyStyleBtn").onclick = () => { readStyleCfgFromInputs(); applyNodeStylesToAll(); };
+      byId("resetStyleBtn").onclick = () => {
+        styleCfg = JSON.parse(JSON.stringify(DEFAULT_STYLE));
+        setStyleInputsFromCfg();
+        applyNodeStylesToAll();
+      };
+
+      // 默认：层级布局 + 2:1，physics 关，影子关
+      layoutMode = "hier";
+      byId("layoutMode").value = "hier";
+      physicsEnabled = false;
+      SHADOW_SHARED_FEATURES = false;
+      byId("togglePhysics").checked = false;
+      byId("toggleShadowShared").checked = false;
+
+      renderGraph(allNodes, allEdges);
+
+      byId("hideLeftBtn").onclick = () => setLeftVisible(false);
+      byId("showLeftBtn").onclick = () => setLeftVisible(true);
+      byId("hideRightBtn").onclick = () => setRightVisible(false);
+      byId("showRightBtn").onclick = () => setRightVisible(true);
+
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+      showErr("页面脚本报错：\n" + (err?.message || String(err)));
+      alert("页面脚本报错：\n" + (err?.message || String(err)));
+    }
+  }
+
+  main();
+</script>
+</body>
+</html>
