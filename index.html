@@ -219,9 +219,11 @@
             </select>
             <button id="applyLayoutBtn" style="padding:6px 8px; font-size:12px;">应用</button>
           </div>
+
+          <!-- ✅ 修改：提示文字改成“列即重要性” + hover 的 max/sum -->
           <div class="hint" style="margin-top:8px;">
-            层级布局：DB → Model → Feature（三组）；<br>
-            聚类环形：模型在椭圆上，特征按“最大 value 归属模型”围绕模型多环排布（稳定）。
+            层级布局：DB → Model → Feature；<b>越靠近模型列（越左）重要性越高</b>（由 feature 分数决定）。<br>
+            聚类环形：模型在椭圆上，Feature 围绕其“最大 value 归属模型”多环分布；<b>越靠近模型（内圈）通常分数越高</b>。
           </div>
         </div>
       </div>
@@ -359,6 +361,11 @@
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.50;
   const WHEEL_ZOOM_K = 0.0012;
+
+  // ✅ Feature 分数显示（hover title）：max / sum
+  // 说明：max = 单条 model_feature 边的最大 value（合并后）；sum = 所有 model_feature 边的 value 之和（合并后）
+  let featScoreMax = new Map(); // featureId -> max
+  let featScoreSum = new Map(); // featureId -> sum
 
   function enableWheelZoom(container){
     container.addEventListener("wheel", (e) => {
@@ -586,17 +593,12 @@
   }
 
   // ======== ✅【新增】节点渲染层级控制：database > model > feature ========
-  // 说明：vis-network 没有稳定的 zIndex 选项，最稳是让 DataSet 的“顺序”决定绘制顺序：
-  //      先画底层(feature)，后画上层(database) => database 永远盖在最前
-    function reorderNodesByLayer(){
+  function reorderNodesByLayer(){
     if (!nodesDS || !network) return;
 
     const rank = (g) => (g === "database" ? 3 : (g === "model" ? 2 : 1));
 
-    // 取出当前所有节点（带最新状态）
     const arr = nodesDS.get();
-
-    // 按层级排序：feature(1)先加入 -> 先画；model(2)后加入；db(3)最后加入 -> 最上层
     arr.sort((a,b) => {
       const ra = rank(a.group), rb = rank(b.group);
       if (ra !== rb) return ra - rb;
@@ -604,7 +606,6 @@
       return la.localeCompare(lb);
     });
 
-    // ⚠️ 关键：update 不会改顺序，必须 clear + add 重新插入
     nodesDS.clear();
     nodesDS.add(arr);
 
@@ -844,18 +845,15 @@
   function enableManualDragForFixedNodes(){
     if (!network || !nodesDS) return;
 
-    // 显式允许拖拽节点（默认 true，这里写上更稳）
     try { network.setOptions({ interaction: { dragNodes: true } }); } catch(e) {}
 
     network.on("dragStart", (params) => {
       if (!params || !params.nodes || params.nodes.length === 0) return;
-      // 临时解锁：fixed 节点否则拖不动
       nodesDS.update(params.nodes.map(id => ({ id, fixed: { x: false, y: false } })));
     });
 
     network.on("dragEnd", (params) => {
       if (!params || !params.nodes || params.nodes.length === 0) return;
-      // 写回坐标并重新锁定，保持“稳定不爆炸”
       const pos = network.getPositions(params.nodes);
       const updates = params.nodes.map(id => ({
         id,
@@ -865,7 +863,6 @@
       }));
       nodesDS.update(updates);
 
-      // ✅ 拖完也保持层级
       reorderNodesByLayer();
     });
   }
@@ -875,7 +872,6 @@
   let currentOriginalEdges = [];
 
   // ======== 核心：渲染端“合并同名节点”（模型/特征共用节点） ========
-  // 规则：同 group + 同 label => 合并为一个节点（id 采用 “g:<group>:<label>”）
   function mergedId(group, label){
     return `g:${group}:${String(label ?? "").trim()}`;
   }
@@ -884,7 +880,6 @@
     const nodeByKey = new Map(); // key -> node
     const idMap = new Map();     // oldId -> newId
 
-    // 合并节点
     for (const n of nodesArr){
       const key = mergedId(n.group, n.label);
       if (!nodeByKey.has(key)){
@@ -898,7 +893,6 @@
       idMap.set(n.id, key);
     }
 
-    // 重写边
     const outEdges = [];
     const seen = new Set(); // 去重：from|to|type
     for (const e of edgesArr){
@@ -908,7 +902,6 @@
 
       if (from === to) continue;
       const k = `${from}|${to}|${type}`;
-      // db_model 可以累加 value；model_feature 可以累加 value
       if (seen.has(k)){
         const last = outEdges.find(x => x._k === k);
         if (last){
@@ -1033,7 +1026,16 @@
     network.redraw();
   }
 
-  // 层级布局（横向三列）：DB -> Model -> Feature
+  // ✅ 取 shadow 节点对应的 base featureId（用于查 max/sum 分数）
+  function baseFeatureIdOf(nodeId){
+    const id = String(nodeId || "");
+    if (!id.startsWith("shadow:")) return id;
+    const last = id.lastIndexOf(":");
+    if (last <= 7) return id.slice(7);
+    return id.substring(7, last); // shadow:<fid>:<mid> 取 <fid>
+  }
+
+  // 层级布局（横向列）：DB -> Model -> Feature（Feature 固定列，列即重要性）
   function layoutHierarchicalStable(){
     if (!nodesDS || !edgesDS || !network) return;
 
@@ -1045,15 +1047,13 @@
     const feats  = nodes.filter(n => n.group === "feature").map(n => n.id);
 
     // X 三列（横向）
-    const X_DB = -1100;
-    const X_M  =  0;
-    const X_F0 =  1100;
+    const X_DB = -10;
+    const X_M  =  -5;
 
     // Y 间距
-    const DB_GAP = 260;
-    const M_GAP  = 180;
-    const F_GAP  = 60;   // 特征多，行距小一点
-    const F_COL_GAP = 220;
+    const DB_GAP = 250;
+    const M_GAP  = 200;
+    const F_GAP  = 180;
 
     // 1) DB 排一列
     const updates = [];
@@ -1111,31 +1111,63 @@
       return { fid, y };
     }).sort((a,b) => (a.y-b.y) || (a.fid>b.fid?1:-1));
 
-    // 特征很多：做多列（避免图太高）
-    const maxRows = 110;
-    const cols = Math.max(1, Math.ceil(featTarget.length / maxRows));
-    const rows = Math.ceil(featTarget.length / cols);
+    // ======== ✅ Feature：固定几列，并让“越靠近 Model 列越重要” ========
+    const F_COLS = 4;
 
-    const fStartY = -(rows-1)*F_GAP/2;
-    const fStartX = X_F0 - (cols-1)*F_COL_GAP/2;
+    // 列 X：第 1 列最近（重要） -> 第 4 列最远（不重要）
+    const X_F_NEAR = 0; //第1列的起始X坐标
+    const F_COL_GAP2 = 8; // 列间距
+    const F_GAP2 = 25; // 行间距
 
-    for (let i=0;i<featTarget.length;i++){
-      const col = Math.floor(i/rows);
-      const row = i % rows;
-      const x = fStartX + col*F_COL_GAP;
-      const y = fStartY + row*F_GAP;
-      updates.push({ id: featTarget[i].fid, x, y });
+    // importance：默认用 max（也会同时显示 sum/max 在 hover）
+    // 你如果想用 sum 分列，把 useSumImportance 改成 true
+    const useSumImportance = true;
+
+    const scoreOf = (fid) => {
+      const base = baseFeatureIdOf(fid);
+      const mx = Number(featScoreMax.get(base) || 0);
+      const sm = Number(featScoreSum.get(base) || 0);
+      return useSumImportance ? sm : mx;
+    };
+
+    // log 压缩后归一化，避免长尾让分列极端
+    let maxScore = 0;
+    for (const it of featTarget) maxScore = Math.max(maxScore, scoreOf(it.fid));
+    const denom = Math.log1p(maxScore) || 1;
+
+    function colByImportance(fid){
+      const s = scoreOf(fid);
+      const norm = Math.log1p(s) / denom; // 0..1
+      let col = Math.floor((1 - norm) * F_COLS); // norm=1 -> col=0
+      if (col < 0) col = 0;
+      if (col > F_COLS - 1) col = F_COLS - 1;
+      return col;
+    }
+
+    const perCol = Array.from({ length: F_COLS }, () => []);
+    for (const it of featTarget){
+      const col = colByImportance(it.fid);
+      perCol[col].push(it.fid); // 列内顺序沿用 featTarget 的 y 排序（减少交叉）
+    }
+
+    for (let col = 0; col < F_COLS; col++){
+      const arr = perCol[col];
+      const x = X_F_NEAR + col * F_COL_GAP2;
+      const y0 = -(arr.length - 1) * F_GAP2 / 2;
+      for (let i = 0; i < arr.length; i++){
+        const fid = arr[i];
+        const y = y0 + i * F_GAP2;
+        updates.push({ id: fid, x, y });
+      }
     }
 
     // 固定
     nodesDS.update(updates.map(u => ({...u, fixed:{x:true,y:true}})));
     network.redraw();
 
-    // 2:1 拉伸
     ensureAspectByScalingX(TARGET_ASPECT);
     freezeGraphHard();
 
-    // ✅ 布局后再确保层级
     reorderNodesByLayer();
   }
 
@@ -1209,7 +1241,6 @@
       }
       sx/=Math.max(1,c); sy/=Math.max(1,c);
 
-      // 往外推一点（沿着从中心指向它的方向）
       const len = Math.hypot(sx,sy) || 1;
       const ux = sx/len, uy = sy/len;
       const x = sx + ux*(420);
@@ -1249,7 +1280,6 @@
       let r0 = 170 + Math.min(260, Math.sqrt(count)*9);
       const MAX_RINGS = 14;
 
-      // 预估每圈容量
       const rings = [];
       let remaining = count;
       let r = r0;
@@ -1261,7 +1291,6 @@
       }
       if (remaining > 0 && rings.length) rings[rings.length-1].cap += remaining;
 
-      // 相位：用模型角度 + 稳定hash
       const phase = mp.ang + ((hashToSeed(mid)%360)/360)*Math.PI*2;
 
       let idx=0;
@@ -1307,7 +1336,6 @@
     ensureAspectByScalingX(TARGET_ASPECT);
     freezeGraphHard();
 
-    // ✅ 布局后再确保层级
     reorderNodesByLayer();
   }
 
@@ -1323,7 +1351,6 @@
     try { network.fit({ animation: { duration: 320 } }); } catch(e) {}
     freezeGraphHard();
 
-    // ✅ 每次应用布局都保持层级
     reorderNodesByLayer();
   }
 
@@ -1332,9 +1359,9 @@
     try{
       if (!network || !nodesDS || !edgesDS) return;
 
-      const W = 4800;
-      const H = 2400;
-      const SAFE_SCALE = 0.90;
+      const W = 6400; //const W = 4800;
+      const H = 3200; //const H = 2400;
+      const SAFE_SCALE = 0.95; // 提高图像分辨率时的缩放比例 0.90
 
       const ids = nodesDS.getIds();
       const pos = network.getPositions(ids);
@@ -1450,9 +1477,34 @@
         edgesDS.update({ id: edge.id, opacity: on ? 1 : 0.10 });
       });
 
-      // ✅ 高亮不改变层级，但这里补一刀也无害
       reorderNodesByLayer();
     });
+  }
+
+  // ======== ✅ 计算 feature 的 max/sum 分数（基于 merge 后的 edgesMerged） ========
+  function computeFeatureScoresFromMergedEdges(edgesMerged){
+    featScoreMax = new Map();
+    featScoreSum = new Map();
+
+    for (const e of edgesMerged){
+      if (e.type !== "model_feature") continue;
+      const fid = e.to;
+      const w = Math.max(0, Number(e.value) || 0);
+
+      featScoreSum.set(fid, (featScoreSum.get(fid) || 0) + w);
+      featScoreMax.set(fid, Math.max(featScoreMax.get(fid) || 0, w));
+    }
+  }
+
+  function featureTitleWithScore(nodeId, label, baseTitle){
+    const baseId = baseFeatureIdOf(nodeId);
+    const mx = Number(featScoreMax.get(baseId) || 0);
+    const sm = Number(featScoreSum.get(baseId) || 0);
+
+    const title0 = String(baseTitle || label || "");
+    const head = title0 ? title0 : String(label || "");
+    // 用换行让 hover 更清晰（vis-network 的 title 支持 \n）
+    return `${head}\n分数：max=${mx}，sum=${sm}`;
   }
 
   // ======== render ========
@@ -1461,7 +1513,6 @@
     if (!container) throw new Error("找不到 #mynetwork 容器");
     if (!window.vis || !vis.Network) throw new Error("vis-network 未加载成功（vis.Network 不存在）");
 
-    // 记录当前筛选范围（原始）用于 toggleShadowShared
     currentOriginalNodes = nodesArrOriginal;
     currentOriginalEdges = edgesArrOriginal;
 
@@ -1474,18 +1525,30 @@
         let nodesMerged = merged.nodes;
         let edgesMerged = merged.edges;
 
+        // ✅ 先基于“merge 后（未 shadow）”的边计算 feature 分数（max/sum）
+        computeFeatureScoresFromMergedEdges(edgesMerged);
+
         // 2) 影子共享特征（可选）
         const prepared = prepareRenderData(nodesMerged, edgesMerged);
         const nodesArr = prepared.nodes;
         const edgesArr = prepared.edges;
 
-        nodesDS = new vis.DataSet(nodesArr.map(n => ({
-          id: n.id,
-          label: n.label,
-          title: n.title,
-          group: n.group,
-          ...nodeStyleByGroup(n.group),
-        })));
+        nodesDS = new vis.DataSet(nodesArr.map(n => {
+          let title = n.title;
+
+          // ✅ 给 feature（含 shadow feature）追加 max/sum 分数
+          if (n.group === "feature") {
+            title = featureTitleWithScore(n.id, n.label, n.title);
+          }
+
+          return ({
+            id: n.id,
+            label: n.label,
+            title,
+            group: n.group,
+            ...nodeStyleByGroup(n.group),
+          });
+        }));
 
         edgesDS = new vis.DataSet(edgesArr.map((e, idx) => ({
           id: e.id ?? `${e.from}->${e.to}:${e.type ?? ""}:${idx}`,
@@ -1515,23 +1578,18 @@
             enableWheelZoom(container);
             mountPhysicsPanel();
 
-            // ✅ 启用“拖动 fixed 节点”
             enableManualDragForFixedNodes();
 
-            // 默认冻结
             setPhysicsEnabled(physicsEnabled, { userAction: false });
             if (!physicsEnabled) freezeGraphHard();
 
             bindClickHighlight();
 
-            // ✅ 先确保一次层级（DB 最上）
             reorderNodesByLayer();
 
-            // ✅ 应用当前布局模式（稳定）
             setLoading(true, "应用布局模式…", 70);
             requestAnimationFrame(() => {
               applyLayoutNow();
-              // ✅ 布局后再确保层级（更稳）
               reorderNodesByLayer();
               setLoading(false);
             });
@@ -1616,7 +1674,6 @@
   function toggleLabels(){
     const show = byId("toggleLabels").checked;
     nodesDS.forEach(n => nodesDS.update({ id: n.id, label: show ? n.label : "" }));
-    // ✅ 改标签后也保持层级
     reorderNodesByLayer();
   }
 
@@ -1660,7 +1717,6 @@
 
       byId("togglePhysics").onchange = (e) => {
         setPhysicsEnabled(!!e.target.checked, { userAction: true });
-        // ✅ 切换 physics 后也确保层级
         reorderNodesByLayer();
       };
 
