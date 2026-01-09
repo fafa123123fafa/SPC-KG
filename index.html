@@ -220,9 +220,8 @@
             <button id="applyLayoutBtn" style="padding:6px 8px; font-size:12px;">应用</button>
           </div>
 
-          <!-- ✅ 修改：提示文字改成“列即重要性” + hover 的 max/sum -->
           <div class="hint" style="margin-top:8px;">
-            层级布局：DB → Model → Feature；<b>越靠近模型列（越左）重要性越高</b>（由 feature 分数决定）。<br>
+            层级布局：DB → Model → Feature；<b>越靠近模型列（越左）重要性越高</b>（在选择 DB 时使用“数据库条件化 sum”分列）。<br>
             聚类环形：模型在椭圆上，Feature 围绕其“最大 value 归属模型”多环分布；<b>越靠近模型（内圈）通常分数越高</b>。
           </div>
         </div>
@@ -240,7 +239,40 @@
           <button id="exportBtn">导出 PNG</button>
         </div>
 
-        <div class="hint">导出会生成全图PNG，背景纯白。</div>
+        <!-- ✅ 论文导出（DB→Feature 汇总表） -->
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportPaperDBBtn">导出论文表：DB-Feature 汇总</button>
+          <button id="exportSuppModelBtn">导出补充表：DB-Model-Feature 明细</button>
+        </div>
+        <div class="hint">
+          论文表字段：database, feature, sum, max, model_count（需选择数据库）。<br>
+          补充表字段：database, model, feature, value（当前视图内所有边明细）。
+        </div>
+
+        <!-- ✅ Feature Rank Stability（跨数据库特征排名稳健性） -->
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportRankStabilityBtn">导出稳健性：Feature Rank Stability</button>
+          <button disabled style="opacity:.55; cursor:not-allowed;">（预留）</button>
+        </div>
+        <div class="hint">
+          输出字段：feature, rank_in_数据库A, rank_in_数据库B, …, rank_variance。<br/>
+          说明：rank 基于 <b>DB 条件化 sum</b>（db→model→feature 汇总），rank_variance 为跨数据库排名方差（越小越稳）。
+        </div>
+
+        <!-- ✅ 按列导出（层级布局） -->
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportCol1Btn">导出第1列特征</button>
+          <button id="exportCol2Btn">导出第2列特征</button>
+        </div>
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportCol3Btn">导出第3列特征</button>
+          <button id="exportCol4Btn">导出第4列特征</button>
+        </div>
+        <div class="hint">
+          列导出仅对<b>层级布局（hier）</b>有效；导出 CSV 字段：database, model, feature, value（value 为 model→feature 边权重，非 sum）。
+        </div>
+
+        <div class="hint">导出 PNG 会生成全图PNG，背景纯白。</div>
       </div>
 
       <div class="hr"></div>
@@ -341,7 +373,7 @@
   let physicsEnabled = false;          // 默认关闭
   let autoFreezePending = true;
 
-  // ✅ 你要的：布局模式（默认层级）
+  // 布局模式（默认层级）
   let layoutMode = "hier";
   const TARGET_ASPECT = 1.0;
 
@@ -362,10 +394,12 @@
   const MAX_SCALE = 3.50;
   const WHEEL_ZOOM_K = 0.0012;
 
-  // ✅ Feature 分数显示（hover title）：max / sum
-  // 说明：max = 单条 model_feature 边的最大 value（合并后）；sum = 所有 model_feature 边的 value 之和（合并后）
-  let featScoreMax = new Map(); // featureId -> max
-  let featScoreSum = new Map(); // featureId -> sum
+  // 全局（当前视图）feature 分数：max / sum（基于 merge 后 edges）
+  let featScoreMax = new Map(); // baseFeatureId -> max
+  let featScoreSum = new Map(); // baseFeatureId -> sum
+
+  // ✅ 层级布局下 feature 的列归属（用于“按列导出”）
+  let featureColMap = new Map(); // featureId(含shadow) -> colIndex 0..3
 
   function enableWheelZoom(container){
     container.addEventListener("wheel", (e) => {
@@ -583,7 +617,6 @@
       nodesDS.update(updates);
       if (network) network.redraw();
 
-      // ✅ 确保渲染层级：DB 最上，Model 次之，Feature 最下
       reorderNodesByLayer();
     }catch(err){
       console.error(err);
@@ -592,7 +625,7 @@
     }
   }
 
-  // ======== ✅【新增】节点渲染层级控制：database > model > feature ========
+  // ======== 节点渲染层级：database > model > feature ========
   function reorderNodesByLayer(){
     if (!nodesDS || !network) return;
 
@@ -841,7 +874,7 @@
     styleCfg.feature.fontSize  = normalizeNumberInput("s_f_font", styleCfg.feature.fontSize, 8, 40);
   }
 
-  // ======== ✅【新增】允许拖动“fixed 节点”的最小补丁（不改你其它逻辑） ========
+  // ======== 允许拖动 fixed 节点 ========
   function enableManualDragForFixedNodes(){
     if (!network || !nodesDS) return;
 
@@ -871,14 +904,14 @@
   let currentOriginalNodes = [];
   let currentOriginalEdges = [];
 
-  // ======== 核心：渲染端“合并同名节点”（模型/特征共用节点） ========
+  // ======== 合并同名节点（模型/特征共用节点） ========
   function mergedId(group, label){
     return `g:${group}:${String(label ?? "").trim()}`;
   }
 
   function mergeNodesEdgesByLabel(nodesArr, edgesArr){
-    const nodeByKey = new Map(); // key -> node
-    const idMap = new Map();     // oldId -> newId
+    const nodeByKey = new Map();
+    const idMap = new Map();
 
     for (const n of nodesArr){
       const key = mergedId(n.group, n.label);
@@ -894,7 +927,7 @@
     }
 
     const outEdges = [];
-    const seen = new Set(); // 去重：from|to|type
+    const seen = new Set();
     for (const e of edgesArr){
       const from = idMap.get(e.from) || e.from;
       const to   = idMap.get(e.to)   || e.to;
@@ -927,7 +960,7 @@
     return { nodes: outNodes, edges: outEdges, idMap };
   }
 
-  // ======== 影子共享特征（保留功能） ========
+  // ======== 影子共享特征 ========
   function detectSharedOriginal(nodesArr, edgesArr){
     const m = new Map(); // fid -> Set(models)
     for (const e of edgesArr){
@@ -994,7 +1027,28 @@
     return { nodes: outNodes, edges: outEdges };
   }
 
-  // ======== ✅ 关键：两种“稳定不爆炸”的布局算法 ========
+  // ======== 导出工具 ========
+  function csvEscape(v){
+    const s = String(v ?? "");
+    if (/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+    return s;
+  }
+  function downloadText(filename, text, mime="text/plain;charset=utf-8"){
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+  function isoStamp(){
+    return new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  }
+
+  // ======== aspect helper ========
   function ensureAspectByScalingX(targetAspect = 2.0){
     if (!nodesDS || !network) return;
     const ids = nodesDS.getIds();
@@ -1026,16 +1080,114 @@
     network.redraw();
   }
 
-  // ✅ 取 shadow 节点对应的 base featureId（用于查 max/sum 分数）
+  // ======== shadow base feature ========
   function baseFeatureIdOf(nodeId){
     const id = String(nodeId || "");
     if (!id.startsWith("shadow:")) return id;
     const last = id.lastIndexOf(":");
     if (last <= 7) return id.slice(7);
-    return id.substring(7, last); // shadow:<fid>:<mid> 取 <fid>
+    return id.substring(7, last); // shadow:<fid>:<mid> -> <fid>
   }
 
-  // 层级布局（横向列）：DB -> Model -> Feature（Feature 固定列，列即重要性）
+  // ======== ✅ DB 条件化重要性（sum_d / max_d / model_count） ========
+  function getSelectedDbLabel(){
+    const el = byId("dbSelect");
+    return el ? String(el.value || "") : "";
+  }
+
+  function findDbNodeIdByLabel(dbLabel){
+    if (!nodesDS || !dbLabel) return null;
+    const nodes = nodesDS.get();
+    const hit = nodes.find(n => n.group === "database" && String(n.label) === String(dbLabel));
+    return hit ? hit.id : null;
+  }
+
+  function computeDbConditionalFeatureStats(dbNodeId){
+    // 使用当前视图 edgesDS / nodesDS 计算：
+    // dbNodeId --(db_model)--> models --(model_feature)--> features
+    const empty = {
+      sum: new Map(),
+      max: new Map(),
+      modelCount: new Map(),
+      modelIds: new Set()
+    };
+    if (!dbNodeId || !edgesDS) return empty;
+
+    const edges = edgesDS.get();
+    const modelIds = new Set();
+    for (const e of edges){
+      if (e.type !== "db_model") continue;
+      if (e.from !== dbNodeId) continue;
+      modelIds.add(e.to);
+    }
+
+    const sum = new Map();
+    const mx  = new Map();
+    const modelCount = new Map();
+    const modelSeenPerFeature = new Map(); // baseFid -> Set(modelId)
+
+    for (const e of edges){
+      if (e.type !== "model_feature") continue;
+      if (!modelIds.has(e.from)) continue;
+
+      const baseFid = baseFeatureIdOf(e.to);
+      const w = Math.max(0, Number(e.value) || 0);
+
+      sum.set(baseFid, (sum.get(baseFid) || 0) + w);
+      mx.set(baseFid, Math.max(mx.get(baseFid) || 0, w));
+
+      if (!modelSeenPerFeature.has(baseFid)) modelSeenPerFeature.set(baseFid, new Set());
+      modelSeenPerFeature.get(baseFid).add(e.from);
+    }
+
+    for (const [fid, s] of sum.entries()){
+      modelCount.set(fid, modelSeenPerFeature.get(fid)?.size || 0);
+    }
+
+    return { sum, max: mx, modelCount, modelIds };
+  }
+
+  function computeFeatureScoresFromMergedEdges(edgesMerged){
+    featScoreMax = new Map();
+    featScoreSum = new Map();
+
+    for (const e of edgesMerged){
+      if (e.type !== "model_feature") continue;
+      const fid = e.to;
+      const w = Math.max(0, Number(e.value) || 0);
+
+      featScoreSum.set(fid, (featScoreSum.get(fid) || 0) + w);
+      featScoreMax.set(fid, Math.max(featScoreMax.get(fid) || 0, w));
+    }
+  }
+
+  // hover title：显示全局 +（如果选择 DB）显示 db-conditional
+  function featureTitleWithScore(nodeId, label, baseTitle){
+    const baseId = baseFeatureIdOf(nodeId);
+
+    const gMax = Number(featScoreMax.get(baseId) || 0);
+    const gSum = Number(featScoreSum.get(baseId) || 0);
+
+    const title0 = String(baseTitle || label || "");
+    const head = title0 ? title0 : String(label || "");
+
+    const dbLabel = getSelectedDbLabel();
+    if (!dbLabel) {
+      return `${head}\n分数（global）：max=${gMax}，sum=${gSum}`;
+    }
+
+    const dbId = findDbNodeIdByLabel(dbLabel);
+    const st = computeDbConditionalFeatureStats(dbId);
+    const dMax = Number(st.max.get(baseId) || 0);
+    const dSum = Number(st.sum.get(baseId) || 0);
+    const dCnt = Number(st.modelCount.get(baseId) || 0);
+
+    return `${head}\n分数（global）：max=${gMax}，sum=${gSum}\n分数（DB=${dbLabel}）：max=${dMax}，sum=${dSum}，model_count=${dCnt}`;
+  }
+
+  // ======== ✅ 两种“稳定不爆炸”的布局算法 ========
+
+  // 层级布局：DB -> Model -> Feature（Feature 分 4 列，选择 DB 时用 sum_d 分列）
   function layoutHierarchicalStable(){
     if (!nodesDS || !edgesDS || !network) return;
 
@@ -1046,16 +1198,15 @@
     const models = nodes.filter(n => n.group === "model").map(n => n.id);
     const feats  = nodes.filter(n => n.group === "feature").map(n => n.id);
 
-    // X 三列（横向）
+    // X 列
     const X_DB = -10;
     const X_M  =  -5;
 
     // Y 间距
     const DB_GAP = 250;
     const M_GAP  = 200;
-    const F_GAP  = 180;
 
-    // 1) DB 排一列
+    // 1) DB
     const updates = [];
     const dbY = new Map();
     const dbSorted = [...dbs].sort();
@@ -1067,7 +1218,7 @@
       updates.push({ id, x: X_DB, y });
     }
 
-    // 2) Model 的 Y 用连接到 DB 的 Y 均值（减少交叉），再均匀拉开
+    // 2) Model
     const modelY0 = new Map();
     for (const mid of models){
       let s=0,c=0;
@@ -1089,7 +1240,7 @@
       updates.push({ id, x: X_M, y });
     }
 
-    // 3) Feature 的目标 Y：连接到 model 的加权均值（减少交叉）
+    // 3) Feature 目标 Y（减少交叉）
     const featY0 = new Map();
     const featW  = new Map();
     for (const fid of feats){
@@ -1111,26 +1262,35 @@
       return { fid, y };
     }).sort((a,b) => (a.y-b.y) || (a.fid>b.fid?1:-1));
 
-    // ======== ✅ Feature：固定几列，并让“越靠近 Model 列越重要” ========
+    // ======== Feature 分列（关键）：选择 DB 时按 sum_d；未选择时按 global sum ========
     const F_COLS = 4;
+    const X_F_NEAR = 0;
+    const F_COL_GAP2 = 8;
+    const F_GAP2 = 25;
 
-    // 列 X：第 1 列最近（重要） -> 第 4 列最远（不重要）
-    const X_F_NEAR = 0; //第1列的起始X坐标
-    const F_COL_GAP2 = 8; // 列间距
-    const F_GAP2 = 25; // 行间距
-
-    // importance：默认用 max（也会同时显示 sum/max 在 hover）
-    // 你如果想用 sum 分列，把 useSumImportance 改成 true
+    // 重要性用 sum（论文里 global vs db-conditional 都更稳健）
     const useSumImportance = true;
+
+    const selectedDbLabel = getSelectedDbLabel();
+    let dStats = null;
+    if (selectedDbLabel) {
+      const dbId = findDbNodeIdByLabel(selectedDbLabel);
+      if (dbId) dStats = computeDbConditionalFeatureStats(dbId);
+    }
 
     const scoreOf = (fid) => {
       const base = baseFeatureIdOf(fid);
+      if (dStats && selectedDbLabel) {
+        const ds = Number(dStats.sum.get(base) || 0);
+        const dm = Number(dStats.max.get(base) || 0);
+        return useSumImportance ? ds : dm;
+      }
       const mx = Number(featScoreMax.get(base) || 0);
       const sm = Number(featScoreSum.get(base) || 0);
       return useSumImportance ? sm : mx;
     };
 
-    // log 压缩后归一化，避免长尾让分列极端
+    // log 压缩归一化
     let maxScore = 0;
     for (const it of featTarget) maxScore = Math.max(maxScore, scoreOf(it.fid));
     const denom = Math.log1p(maxScore) || 1;
@@ -1138,16 +1298,18 @@
     function colByImportance(fid){
       const s = scoreOf(fid);
       const norm = Math.log1p(s) / denom; // 0..1
-      let col = Math.floor((1 - norm) * F_COLS); // norm=1 -> col=0
+      let col = Math.floor((1 - norm) * F_COLS); // 高分 -> col 0
       if (col < 0) col = 0;
       if (col > F_COLS - 1) col = F_COLS - 1;
       return col;
     }
 
+    featureColMap = new Map();
     const perCol = Array.from({ length: F_COLS }, () => []);
     for (const it of featTarget){
       const col = colByImportance(it.fid);
-      perCol[col].push(it.fid); // 列内顺序沿用 featTarget 的 y 排序（减少交叉）
+      perCol[col].push(it.fid);
+      featureColMap.set(it.fid, col);
     }
 
     for (let col = 0; col < F_COLS; col++){
@@ -1161,7 +1323,6 @@
       }
     }
 
-    // 固定
     nodesDS.update(updates.map(u => ({...u, fixed:{x:true,y:true}})));
     network.redraw();
 
@@ -1171,7 +1332,7 @@
     reorderNodesByLayer();
   }
 
-  // 聚类环形：模型在椭圆上；特征按“最大 value”归属模型，多环围绕（稳定）
+  // 聚类环形（原逻辑）
   function layoutClusterRingStable(){
     if (!nodesDS || !edgesDS || !network) return;
 
@@ -1182,7 +1343,6 @@
     const models = nodes.filter(n => n.group === "model").map(n => n.id);
     const feats  = nodes.filter(n => n.group === "feature").map(n => n.id);
 
-    // 1) 模型放椭圆
     const m = models.length || 1;
     const RX = 1100 + Math.min(1200, Math.sqrt(m)*120);
     const RY =  520 + Math.min( 900, Math.sqrt(m)*90);
@@ -1197,10 +1357,9 @@
       modelPos.set(mid, {x,y,ang});
     }
 
-    // 2) Feature 归属：找最大 value 的 model
-    featureOwner = new Map(); // featureId -> modelId
-    const perModel = new Map(); // modelId -> [{fid,w}]
-    const featBest = new Map(); // fid -> {mid,w}
+    featureOwner = new Map();
+    const perModel = new Map();
+    const featBest = new Map();
 
     for (const e of edges){
       if (e.type !== "model_feature") continue;
@@ -1219,9 +1378,8 @@
       perModel.get(best.mid).push({ fid, w: best.w });
     }
 
-    // 3) DB 放到其连接模型的“外侧”，避免压在中间
     const dbPos = new Map();
-    const dbModels = new Map(); // db -> Set(models)
+    const dbModels = new Map();
     for (const e of edges){
       if (e.type !== "db_model") continue;
       if (!dbModels.has(e.from)) dbModels.set(e.from, new Set());
@@ -1248,15 +1406,12 @@
       dbPos.set(db, {x,y});
     }
 
-    // 4) 特征围绕归属模型多环
     const updates = [];
 
-    // model
     for (const mid of modelsSorted){
       const p = modelPos.get(mid);
       updates.push({ id: mid, x: p.x, y: p.y });
     }
-    // db
     for (const db of dbs){
       const p = dbPos.get(db) || {x:-RX-500,y:0};
       updates.push({ id: db, x: p.x, y: p.y });
@@ -1318,7 +1473,6 @@
       }
     }
 
-    // 对没有归属的 feature（极少数）放到右侧一列
     const placed = new Set(featureOwner.keys());
     const unplaced = feats.filter(fid => !placed.has(fid));
     if (unplaced.length){
@@ -1350,7 +1504,6 @@
 
     try { network.fit({ animation: { duration: 320 } }); } catch(e) {}
     freezeGraphHard();
-
     reorderNodesByLayer();
   }
 
@@ -1359,9 +1512,9 @@
     try{
       if (!network || !nodesDS || !edgesDS) return;
 
-      const W = 6400; //const W = 4800;
-      const H = 3200; //const H = 2400;
-      const SAFE_SCALE = 0.95; // 提高图像分辨率时的缩放比例 0.90
+      const W = 6400;
+      const H = 3200;
+      const SAFE_SCALE = 0.95;
 
       const ids = nodesDS.getIds();
       const pos = network.getPositions(ids);
@@ -1458,6 +1611,364 @@
     }
   }
 
+  // ======== ✅ 导出：按列（database, model, feature, value） ========
+  function exportFeatureColumnCSV(colIndex){
+    if (!nodesDS || !edgesDS) return;
+
+    if (layoutMode !== "hier"){
+      alert("当前不是层级布局（hier），列导出仅在层级布局下可用。");
+      return;
+    }
+
+    const nodes = nodesDS.get();
+    const edges = edgesDS.get();
+
+    const nodeById = new Map(nodes.map(n => [n.id, n]));
+    const dbByModel = new Map();   // modelId -> Set(dbId)
+    const featByModel = new Map(); // modelId -> Array<{fid, value}>
+
+    for (const e of edges){
+      if (e.type !== "db_model") continue;
+      const db = e.from, m = e.to;
+      if (!dbByModel.has(m)) dbByModel.set(m, new Set());
+      dbByModel.get(m).add(db);
+    }
+
+    for (const e of edges){
+      if (e.type !== "model_feature") continue;
+      const m = e.from;
+      const f = e.to;
+      const v = Number(e.value) || 0;
+      if (!featByModel.has(m)) featByModel.set(m, []);
+      featByModel.get(m).push({ fid: f, value: v });
+    }
+
+    const rows = [];
+    for (const [m, feats] of featByModel.entries()){
+      const dbs = dbByModel.get(m);
+      if (!dbs || dbs.size === 0) continue;
+
+      for (const { fid, value } of feats){
+        const col = featureColMap.get(fid);
+        if (col !== colIndex) continue;
+
+        const mLabel = nodeById.get(m)?.label ?? m;
+        const fLabel = nodeById.get(fid)?.label ?? fid;
+
+        for (const db of dbs){
+          const dbLabel = nodeById.get(db)?.label ?? db;
+          rows.push({ database: dbLabel, model: mLabel, feature: fLabel, value });
+        }
+      }
+    }
+
+    if (rows.length === 0){
+      alert(`第 ${colIndex+1} 列没有可导出的记录（可能当前视图内没有该列 feature）。`);
+      return;
+    }
+
+    const header = ["database","model","feature","value"];
+    const lines = [header.join(",")];
+    for (const r of rows){
+      lines.push([
+        csvEscape(r.database),
+        csvEscape(r.model),
+        csvEscape(r.feature),
+        csvEscape(r.value)
+      ].join(","));
+    }
+
+    downloadText(`features_col${colIndex+1}_${isoStamp()}.csv`, lines.join("\n"), "text/csv;charset=utf-8");
+  }
+
+  // ======== ✅ 导出：补充表（当前视图所有 model_feature 明细） ========
+  function exportSupplementaryModelFeatureCSV(){
+    if (!nodesDS || !edgesDS) return;
+
+    const nodes = nodesDS.get();
+    const edges = edgesDS.get();
+    const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+    const dbByModel = new Map();
+    for (const e of edges){
+      if (e.type !== "db_model") continue;
+      if (!dbByModel.has(e.to)) dbByModel.set(e.to, new Set());
+      dbByModel.get(e.to).add(e.from);
+    }
+
+    const rows = [];
+    for (const e of edges){
+      if (e.type !== "model_feature") continue;
+      const m = e.from, f = e.to;
+      const v = Number(e.value) || 0;
+
+      const mLabel = nodeById.get(m)?.label ?? m;
+      const fLabel = nodeById.get(f)?.label ?? f;
+
+      const dbs = dbByModel.get(m);
+      if (!dbs || dbs.size === 0) continue;
+
+      for (const db of dbs){
+        const dbLabel = nodeById.get(db)?.label ?? db;
+        rows.push({ database: dbLabel, model: mLabel, feature: fLabel, value: v });
+      }
+    }
+
+    if (!rows.length){
+      alert("当前视图没有可导出的 model→feature 明细。");
+      return;
+    }
+
+    const header = ["database","model","feature","value"];
+    const lines = [header.join(",")];
+    for (const r of rows){
+      lines.push([
+        csvEscape(r.database),
+        csvEscape(r.model),
+        csvEscape(r.feature),
+        csvEscape(r.value)
+      ].join(","));
+    }
+
+    downloadText(`supp_model_feature_${isoStamp()}.csv`, lines.join("\n"), "text/csv;charset=utf-8");
+  }
+
+  // ======== ✅ 导出：论文表（DB-Feature 汇总：sum/max/model_count） ========
+  function exportPaperDBFeatureCSV(){
+    if (!nodesDS || !edgesDS) return;
+
+    const dbLabel = getSelectedDbLabel();
+    if (!dbLabel){
+      alert("请先在左侧选择一个数据库（dbSelect），再导出论文表。");
+      return;
+    }
+
+    const dbId = findDbNodeIdByLabel(dbLabel);
+    if (!dbId){
+      alert("当前视图里找不到所选数据库节点（可能被筛选排除了）。请应用筛选或重置后再试。");
+      return;
+    }
+
+    const st = computeDbConditionalFeatureStats(dbId);
+    const sum = st.sum, mx = st.max, cnt = st.modelCount;
+
+    // feature label：从 nodesDS 中找任一（含 shadow）对应的 baseId 的 label
+    const nodes = nodesDS.get();
+    const featureLabelByBase = new Map();
+    for (const n of nodes){
+      if (n.group !== "feature") continue;
+      const base = baseFeatureIdOf(n.id);
+      if (!featureLabelByBase.has(base)) featureLabelByBase.set(base, n.label ?? base);
+    }
+
+    const rows = [];
+    for (const [baseFid, s] of sum.entries()){
+      rows.push({
+        database: dbLabel,
+        feature: featureLabelByBase.get(baseFid) ?? baseFid,
+        sum: Number(s) || 0,
+        max: Number(mx.get(baseFid) || 0),
+        model_count: Number(cnt.get(baseFid) || 0)
+      });
+    }
+
+    if (!rows.length){
+      alert("该数据库在当前视图内没有可导出的 feature 汇总（可能没有 model_feature 边）。");
+      return;
+    }
+
+    // Bioinformatics 风格：按 sum 降序
+    rows.sort((a,b) => (b.sum - a.sum) || (b.max - a.max) || String(a.feature).localeCompare(String(b.feature)));
+
+    const header = ["database","feature","sum","max","model_count"];
+    const lines = [header.join(",")];
+    for (const r of rows){
+      lines.push([
+        csvEscape(r.database),
+        csvEscape(r.feature),
+        csvEscape(r.sum),
+        csvEscape(r.max),
+        csvEscape(r.model_count)
+      ].join(","));
+    }
+
+    downloadText(`paper_db_feature_${dbLabel}_${isoStamp()}.csv`, lines.join("\n"), "text/csv;charset=utf-8");
+  }
+
+  // ======== ✅ Feature Rank Stability（跨数据库排名稳健性导出） ========
+// 说明：使用“DB 条件化 sum”来给 feature 排名，然后计算跨 DB 的 rank variance。
+// 重要：这里用的是“全量数据 allNodes/allEdges”，而不是当前筛选视图，适合论文稳健性分析。
+
+function computeDbConditionalFeatureStatsOnEdges(edges, dbNodeId){
+  const empty = {
+    sum: new Map(),
+    max: new Map(),
+    modelCount: new Map(),
+    modelIds: new Set()
+  };
+  if (!dbNodeId || !Array.isArray(edges)) return empty;
+
+  // db -> models
+  const modelIds = new Set();
+  for (const e of edges){
+    if (e.type !== "db_model") continue;
+    if (e.from !== dbNodeId) continue;
+    modelIds.add(e.to);
+  }
+
+  // models -> features (base)
+  const sum = new Map();
+  const mx  = new Map();
+  const modelSeenPerFeature = new Map(); // baseFid -> Set(modelId)
+
+  for (const e of edges){
+    if (e.type !== "model_feature") continue;
+    if (!modelIds.has(e.from)) continue;
+
+    const baseFid = baseFeatureIdOf(e.to);
+    const w = Math.max(0, Number(e.value) || 0);
+
+    sum.set(baseFid, (sum.get(baseFid) || 0) + w);
+    mx.set(baseFid, Math.max(mx.get(baseFid) || 0, w));
+
+    if (!modelSeenPerFeature.has(baseFid)) modelSeenPerFeature.set(baseFid, new Set());
+    modelSeenPerFeature.get(baseFid).add(e.from);
+  }
+
+  const modelCount = new Map();
+  for (const [fid] of sum.entries()){
+    modelCount.set(fid, modelSeenPerFeature.get(fid)?.size || 0);
+  }
+
+  return { sum, max: mx, modelCount, modelIds };
+}
+
+// rank：使用“competition rank”（并列同分同名次，下一名次跳过）
+// 例：scores [10,10,8] => ranks [1,1,3]
+function buildRanksByScore(items){
+  // items: [{fid, score, label}]
+  items.sort((a,b) => (b.score - a.score) || String(a.label).localeCompare(String(b.label)));
+
+  const rankByFid = new Map();
+  let prevScore = null;
+  let rank = 0;
+  let seen = 0;
+
+  for (const it of items){
+    seen += 1;
+    if (prevScore === null || it.score !== prevScore){
+      rank = seen;
+      prevScore = it.score;
+    }
+    rankByFid.set(it.fid, rank);
+  }
+  return rankByFid;
+}
+
+function variance(nums){
+  // population variance
+  const arr = nums.filter(x => Number.isFinite(x));
+  if (arr.length === 0) return 0;
+  const mean = arr.reduce((a,b)=>a+b,0) / arr.length;
+  const v = arr.reduce((s,x)=>s + (x-mean)*(x-mean), 0) / arr.length;
+  return v;
+}
+
+function exportFeatureRankStabilityCSV(){
+  if (!rawData || !allNodes || !allEdges){
+    alert("数据尚未加载完成。");
+    return;
+  }
+
+  const dbLabels = (rawData.meta?.databases || []).slice();
+  if (dbLabels.length < 2){
+    alert("需要至少 2 个数据库才能做 Rank Stability（例如 MIMIC 与 eICU）。");
+    return;
+  }
+
+  // 1) 基于全量数据先做“同名合并”（保证 DB/Model/Feature 在跨库一致）
+  const merged = mergeNodesEdgesByLabel(allNodes, allEdges);
+  const nodesMerged = merged.nodes;
+  const edgesMerged = merged.edges;
+
+  // 2) 找每个 DB 的 nodeId（在 merged graph 里）
+  const dbIdByLabel = new Map();
+  for (const n of nodesMerged){
+    if (n.group === "database") dbIdByLabel.set(String(n.label), n.id);
+  }
+
+  // 3) 收集 feature 基集合（base feature id -> label）
+  const featureLabelByBase = new Map();
+  for (const n of nodesMerged){
+    if (n.group !== "feature") continue;
+    const base = baseFeatureIdOf(n.id);
+    if (!featureLabelByBase.has(base)) featureLabelByBase.set(base, n.label ?? base);
+  }
+  const allBaseFeatures = Array.from(featureLabelByBase.keys()).sort((a,b)=>String(featureLabelByBase.get(a)).localeCompare(String(featureLabelByBase.get(b))));
+
+  if (allBaseFeatures.length === 0){
+    alert("未找到 feature 节点。");
+    return;
+  }
+
+  // 4) 对每个 DB：计算 DB-conditional sum，然后做排名
+  const rankByDb = new Map(); // dbLabel -> Map(baseFid -> rank)
+  const scoreByDb = new Map(); // dbLabel -> Map(baseFid -> sumScore)
+
+  for (const dbLabel of dbLabels){
+    const dbId = dbIdByLabel.get(String(dbLabel));
+    if (!dbId){
+      // 某些 meta 里有但图里缺失：给全 0 排名
+      const zeroScore = new Map(allBaseFeatures.map(fid => [fid, 0]));
+      scoreByDb.set(dbLabel, zeroScore);
+
+      const items0 = allBaseFeatures.map(fid => ({ fid, score: 0, label: featureLabelByBase.get(fid) ?? fid }));
+      rankByDb.set(dbLabel, buildRanksByScore(items0));
+      continue;
+    }
+
+    const st = computeDbConditionalFeatureStatsOnEdges(edgesMerged, dbId);
+    const sumMap = new Map();
+
+    // 对 union feature：缺失默认为 0（自然会排在后面）
+    for (const fid of allBaseFeatures){
+      sumMap.set(fid, Number(st.sum.get(fid) || 0));
+    }
+    scoreByDb.set(dbLabel, sumMap);
+
+    const items = allBaseFeatures.map(fid => ({
+      fid,
+      score: sumMap.get(fid) || 0,
+      label: featureLabelByBase.get(fid) ?? fid
+    }));
+    rankByDb.set(dbLabel, buildRanksByScore(items));
+  }
+
+  // 5) 拼表：feature + rank_in_DB... + rank_variance
+  // 列名做安全处理：rank_in_MIMIC / rank_in_eICU 之类（去掉空格和特殊字符）
+  const safeCol = (s) => String(s).trim().replace(/\s+/g,"_").replace(/[^\w\u4e00-\u9fa5]/g,"_");
+  const rankCols = dbLabels.map(d => `rank_in_${safeCol(d)}`);
+
+  const header = ["feature", ...rankCols, "rank_variance"];
+  const lines = [header.join(",")];
+
+  for (const fid of allBaseFeatures){
+    const featLabel = featureLabelByBase.get(fid) ?? fid;
+    const ranks = dbLabels.map(db => Number(rankByDb.get(db)?.get(fid) ?? NaN));
+    const v = variance(ranks);
+
+    const row = [
+      csvEscape(featLabel),
+      ...ranks.map(x => csvEscape(Number.isFinite(x) ? x : "")),
+      csvEscape(v)
+    ];
+    lines.push(row.join(","));
+  }
+
+  downloadText(`feature_rank_stability_${isoStamp()}.csv`, lines.join("\n"), "text/csv;charset=utf-8");
+}
+
+
   // ======== 点击高亮邻居 ========
   function bindClickHighlight(){
     if (!network || !nodesDS || !edgesDS) return;
@@ -1481,32 +1992,6 @@
     });
   }
 
-  // ======== ✅ 计算 feature 的 max/sum 分数（基于 merge 后的 edgesMerged） ========
-  function computeFeatureScoresFromMergedEdges(edgesMerged){
-    featScoreMax = new Map();
-    featScoreSum = new Map();
-
-    for (const e of edgesMerged){
-      if (e.type !== "model_feature") continue;
-      const fid = e.to;
-      const w = Math.max(0, Number(e.value) || 0);
-
-      featScoreSum.set(fid, (featScoreSum.get(fid) || 0) + w);
-      featScoreMax.set(fid, Math.max(featScoreMax.get(fid) || 0, w));
-    }
-  }
-
-  function featureTitleWithScore(nodeId, label, baseTitle){
-    const baseId = baseFeatureIdOf(nodeId);
-    const mx = Number(featScoreMax.get(baseId) || 0);
-    const sm = Number(featScoreSum.get(baseId) || 0);
-
-    const title0 = String(baseTitle || label || "");
-    const head = title0 ? title0 : String(label || "");
-    // 用换行让 hover 更清晰（vis-network 的 title 支持 \n）
-    return `${head}\n分数：max=${mx}，sum=${sm}`;
-  }
-
   // ======== render ========
   function renderGraph(nodesArrOriginal, edgesArrOriginal){
     const container = byId("mynetwork");
@@ -1520,23 +2005,21 @@
 
     requestAnimationFrame(() => {
       try{
-        // 1) ✅ 合并同名节点（模型/特征共用）
+        // 1) 合并同名节点
         const merged = mergeNodesEdgesByLabel(nodesArrOriginal, edgesArrOriginal);
         let nodesMerged = merged.nodes;
         let edgesMerged = merged.edges;
 
-        // ✅ 先基于“merge 后（未 shadow）”的边计算 feature 分数（max/sum）
+        // 先算全局（当前视图）featScoreSum/Max：基于 merge 后未 shadow 的 edgesMerged
         computeFeatureScoresFromMergedEdges(edgesMerged);
 
-        // 2) 影子共享特征（可选）
+        // 2) shadow（可选）
         const prepared = prepareRenderData(nodesMerged, edgesMerged);
         const nodesArr = prepared.nodes;
         const edgesArr = prepared.edges;
 
         nodesDS = new vis.DataSet(nodesArr.map(n => {
           let title = n.title;
-
-          // ✅ 给 feature（含 shadow feature）追加 max/sum 分数
           if (n.group === "feature") {
             title = featureTitleWithScore(n.id, n.label, n.title);
           }
@@ -1577,19 +2060,29 @@
 
             enableWheelZoom(container);
             mountPhysicsPanel();
-
             enableManualDragForFixedNodes();
 
             setPhysicsEnabled(physicsEnabled, { userAction: false });
             if (!physicsEnabled) freezeGraphHard();
 
             bindClickHighlight();
-
             reorderNodesByLayer();
 
             setLoading(true, "应用布局模式…", 70);
             requestAnimationFrame(() => {
               applyLayoutNow();
+
+              // 重新刷新 hover（因为可能选择了 DB，要显示 db-conditional 分数）
+              try{
+                const current = nodesDS.get();
+                const ups = [];
+                for (const n of current){
+                  if (n.group !== "feature") continue;
+                  ups.push({ id: n.id, title: featureTitleWithScore(n.id, n.label, n.title) });
+                }
+                if (ups.length) nodesDS.update(ups);
+              }catch(_){}
+
               reorderNodesByLayer();
               setLoading(false);
             });
@@ -1712,6 +2205,8 @@
       byId("searchBtn").onclick = searchAndFocus;
       byId("fitBtn").onclick = () => network && network.fit({ animation: { duration: 500 } });
       byId("exportBtn").onclick = exportFullPNG;
+      byId("exportRankStabilityBtn").onclick = exportFeatureRankStabilityCSV;
+
 
       byId("toggleLabels").onchange = toggleLabels;
 
@@ -1738,6 +2233,16 @@
         if (network && nodesDS && edgesDS) applyLayoutNow();
       };
 
+      // ✅ 论文导出 & 补充导出
+      byId("exportPaperDBBtn").onclick = exportPaperDBFeatureCSV;
+      byId("exportSuppModelBtn").onclick = exportSupplementaryModelFeatureCSV;
+
+      // ✅ 列导出
+      byId("exportCol1Btn").onclick = () => exportFeatureColumnCSV(0);
+      byId("exportCol2Btn").onclick = () => exportFeatureColumnCSV(1);
+      byId("exportCol3Btn").onclick = () => exportFeatureColumnCSV(2);
+      byId("exportCol4Btn").onclick = () => exportFeatureColumnCSV(3);
+
       byId("searchInput").addEventListener("keydown", (e) => {
         if (e.key === "Enter") searchAndFocus();
       });
@@ -1752,7 +2257,7 @@
         applyNodeStylesToAll();
       };
 
-      // 默认：层级布局 + 2:1，physics 关，影子关
+      // 默认：层级布局，physics 关，影子关
       layoutMode = "hier";
       byId("layoutMode").value = "hier";
       physicsEnabled = false;
