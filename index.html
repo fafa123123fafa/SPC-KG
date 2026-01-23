@@ -182,7 +182,22 @@
         </div>
       </div>
 
+      
       <div class="hr"></div>
+
+      <!-- ===== 聚类环形：按层级列显示特征 ===== -->
+      <div class="row">
+        <div class="layoutBox">
+          <div class="ttl">聚类环形 · 显示特征列</div>
+          <label><input type="checkbox" class="clusterCol" value="0" checked /> 第 1 列</label>
+          <label><input type="checkbox" class="clusterCol" value="1" checked /> 第 2 列</label>
+          <label><input type="checkbox" class="clusterCol" value="2" checked /> 第 3 列</label>
+          <label><input type="checkbox" class="clusterCol" value="3" checked /> 第 4 列</label>
+          <div class="hint">
+            仅在 <b>聚类环形（cluster）</b> 下生效；列定义来自 <b>层级布局 featureColMap</b>
+          </div>
+        </div>
+      </div>
 
       <div class="row">
         <label>搜索节点</label>
@@ -252,7 +267,6 @@
         <!-- ✅ Feature Rank Stability（跨数据库特征排名稳健性） -->
         <div class="btnrow" style="margin-top:8px;">
           <button id="exportRankStabilityBtn">导出稳健性：Feature Rank Stability</button>
-          <button disabled style="opacity:.55; cursor:not-allowed;">（预留）</button>
         </div>
         <div class="hint">
           输出字段：feature, rank_in_数据库A, rank_in_数据库B, …, rank_variance。<br/>
@@ -384,9 +398,9 @@
   let featureOwner = new Map();
 
   const DEFAULT_STYLE = {
-    database: { nodeColor: "#0099FF", nodeSize: 70, fontColor: "#FFFFFF", fontSize: 60 },
-    model:    { nodeColor: "#E74C3C", nodeSize: 50, fontColor: "#000000", fontSize: 50 },
-    feature:  { nodeColor: "#2ECC71", nodeSize: 40, fontColor: "#666666", fontSize: 40 }
+    database: { nodeColor: "#0099FF", nodeSize: 70, fontColor: "#FFFFFF", fontSize: 60 ,fontWeight: 'bold'},
+    model:    { nodeColor: "#E74C3C", nodeSize: 50, fontColor: "#000000", fontSize: 55 ,fontWeight: 'bold'},
+    feature:  { nodeColor: "#2ECC71", nodeSize: 40, fontColor: "#000000", fontSize: 50 }
   };
   let styleCfg = JSON.parse(JSON.stringify(DEFAULT_STYLE));
 
@@ -873,6 +887,26 @@
     styleCfg.feature.fontColor = normalizeColorInput("c_f_font", styleCfg.feature.fontColor);
     styleCfg.feature.fontSize  = normalizeNumberInput("s_f_font", styleCfg.feature.fontSize, 8, 40);
   }
+
+  
+  // ======== cluster：按层级列显示 feature label ========
+  let clusterVisibleCols = new Set([0,1,2,3]);
+
+  function applyClusterFeatureLabelVisibility(){
+    if (!nodesDS) return;
+    const ups = [];
+    for (const n of nodesDS.get()){
+      if (n.group !== "feature") continue;
+      const col = featureColMap.get(n.id);
+      if (col === undefined) continue;
+      ups.push({ id: n.id, label: clusterVisibleCols.has(col) ? n.label : "" });
+    }
+    if (ups.length) {
+      nodesDS.update(ups);
+      reorderNodesByLayer();
+    }
+  }
+
 
   // ======== 允许拖动 fixed 节点 ========
   function enableManualDragForFixedNodes(){
@@ -2242,6 +2276,19 @@ function exportFeatureRankStabilityCSV(){
       byId("exportCol2Btn").onclick = () => exportFeatureColumnCSV(1);
       byId("exportCol3Btn").onclick = () => exportFeatureColumnCSV(2);
       byId("exportCol4Btn").onclick = () => exportFeatureColumnCSV(3);
+
+
+      // cluster 列可见性
+      document.querySelectorAll(".clusterCol").forEach(cb => {
+        cb.onchange = () => {
+          clusterVisibleCols = new Set(
+            Array.from(document.querySelectorAll(".clusterCol"))
+              .filter(x => x.checked)
+              .map(x => Number(x.value))
+          );
+          if (layoutMode === "cluster") applyClusterFeatureLabelVisibility();
+        };
+      });
 
       byId("searchInput").addEventListener("keydown", (e) => {
         if (e.key === "Enter") searchAndFocus();
