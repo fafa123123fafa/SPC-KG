@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Database–Model–Feature Knowledge Graph</title>
+
+  <link rel="stylesheet" href="vendor/vis-network.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="vendor/vis-network.min.js"></script>
+</head>
+
+<body>
+  <div id="loadingOverlay">
+    <div id="loadingCard">
+      <div id="loadingTitle">正在加载知识图谱…</div>
+      <div id="loadingText">初始化中</div>
+      <div id="loadingBarOuter"><div id="loadingBarInner"></div></div>
+      <div id="loadingPct">0%</div>
+    </div>
+  </div>
+
+  <button id="showLeftBtn" class="floatTab">显示左侧</button>
+  <button id="showRightBtn" class="floatTab">显示右侧</button>
+
+  <div class="wrap" id="wrapRoot">
+    <div class="panel" id="leftPanel">
+      <div class="row">
+        <div class="headRow">
+          <div class="title">Knowledge Graph</div>
+          <button id="hideLeftBtn" title="隐藏左侧面板">隐藏</button>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <!-- 聚类环形：按层级列显示特征 -->
+      <div class="row">
+        <div class="layoutBox">
+          <div class="ttl">聚类环形 · 显示特征列</div>
+          <label><input type="checkbox" class="clusterCol" value="0" checked /> 第 1 列</label>
+          <label><input type="checkbox" class="clusterCol" value="1" checked /> 第 2 列</label>
+          <label><input type="checkbox" class="clusterCol" value="2" checked /> 第 3 列</label>
+          <label><input type="checkbox" class="clusterCol" value="3" checked /> 第 4 列</label>
+          <div class="hint">
+            仅在 <b>聚类环形（cluster）</b> 下生效；列定义来自 <b>层级布局 featureColMap</b>
+          </div>
+        </div>
+      </div>
+
+
+      <div class="row">
+        <label>搜索节点</label>
+        <input id="searchInput" placeholder="例如：MIMIC / LSTM / Glucose ..." />
+        <button id="searchBtn">定位</button>
+        <div class="hint">提示：搜索会定位到第一个匹配节点并选中它。</div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label>筛选：数据库（只显示这个数据库相关的模型+特征）</label>
+        <select id="dbSelect"></select>
+
+        <label>筛选：模型（只显示这个模型相关的数据库+特征）</label>
+        <select id="modelSelect"></select>
+
+        <div class="btnrow">
+          <button id="applyFilterBtn">应用筛选</button>
+          <button id="resetBtn">重置</button>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <!-- 布局模式切换 -->
+      <div class="row">
+        <div class="layoutBox">
+          <div class="ttl">布局模式</div>
+          <div class="layoutRow">
+            <select id="layoutMode">
+              <option value="hier" selected>层级布局（默认，稳）</option>
+              <option value="cluster">聚类环形（模型成簇）</option>
+            </select>
+            <button id="applyLayoutBtn" style="padding:6px 8px; font-size:12px;">应用</button>
+          </div>
+          <div class="hint" style="margin-top:8px;">
+            层级布局：DB → Model → Feature；<b>越靠近模型列（越左）重要性越高</b>。<br>
+            聚类环形：模型在椭圆上，Feature 围绕其“最大 value 归属模型”多环分布。
+          </div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <label><input type="checkbox" id="toggleLabels" checked /> 显示标签</label>
+        <label><input type="checkbox" id="togglePhysics" /> 启用物理引擎</label>
+        <label><input type="checkbox" id="toggleShadowShared" /> 共享特征按模型复制</label>
+
+        <div class="btnrow">
+          <button id="fitBtn">Fit 全图</button>
+          <button id="exportBtn">导出 PNG</button>
+        </div>
+
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportSvgBtn">导出当前 SVG</button>
+          <button id="exportPaperSvgBtn">导出论文版 SVG</button>
+        </div>
+
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportPaperTopSvgBtn">导出 Top 特征标签 SVG</button>
+        </div>
+
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportGlobalFeatureBtn">导出补充表 S1：Global Feature Hierarchy</button>
+          <button id="exportDBFeatureBtn">导出补充表 S2：DB Feature Hierarchy</button>
+        </div>
+
+        <!-- 论文导出 -->
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportPaperDBBtn">导出论文表：DB-Feature 汇总</button>
+          <button id="exportSuppModelBtn">导出补充表：DB-Model-Feature 明细</button>
+        </div>
+
+        <!-- Feature Rank Stability -->
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportRankStabilityBtn">导出稳健性：Feature Rank Stability</button>
+        </div>
+
+        <!-- 按列导出 -->
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportCol1Btn">导出第1列特征</button>
+          <button id="exportCol2Btn">导出第2列特征</button>
+        </div>
+        <div class="btnrow" style="margin-top:8px;">
+          <button id="exportCol3Btn">导出第3列特征</button>
+          <button id="exportCol4Btn">导出第4列特征</button>
+        </div>
+
+        <div class="hint">
+          导出 PNG 为位图；导出 SVG 为矢量图，适合后续转换为 PDF 用于论文投稿。
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="hint" id="stats"></div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <div style="font-weight:700; font-size:14px;">样式设置（颜色 / 大小 / 字体）</div>
+
+        <div class="styleGrid">
+          <div class="styleBlock">
+            <div class="stTitle">数据库节点（database）</div>
+            <div class="styleRow">
+              <div><label>节点颜色</label><input id="c_db_node" type="color" /></div>
+              <div><label>节点大小（盒子padding）</label><input id="s_db_node" type="number" min="8" max="80" step="1" /></div>
+            </div>
+            <div class="styleRow">
+              <div><label>文字颜色</label><input id="c_db_font" type="color" /></div>
+              <div><label>文字大小</label><input id="s_db_font" type="number" min="8" max="40" step="1" /></div>
+            </div>
+          </div>
+
+          <div class="styleBlock">
+            <div class="stTitle">模型节点（model）</div>
+            <div class="styleRow">
+              <div><label>节点颜色</label><input id="c_m_node" type="color" /></div>
+              <div><label>节点大小</label><input id="s_m_node" type="number" min="8" max="80" step="1" /></div>
+            </div>
+            <div class="styleRow">
+              <div><label>文字颜色</label><input id="c_m_font" type="color" /></div>
+              <div><label>文字大小</label><input id="s_m_font" type="number" min="8" max="40" step="1" /></div>
+            </div>
+          </div>
+
+          <div class="styleBlock">
+            <div class="stTitle">特征节点（feature）</div>
+            <div class="styleRow">
+              <div><label>节点颜色</label><input id="c_f_node" type="color" /></div>
+              <div><label>节点大小</label><input id="s_f_node" type="number" min="8" max="80" step="1" /></div>
+            </div>
+            <div class="styleRow">
+              <div><label>文字颜色</label><input id="c_f_font" type="color" /></div>
+              <div><label>文字大小</label><input id="s_f_font" type="number" min="8" max="40" step="1" /></div>
+            </div>
+          </div>
+
+          <div class="styleBtns">
+            <button id="applyStyleBtn">应用样式</button>
+            <button id="resetStyleBtn">恢复默认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="netwrap">
+      <div id="mynetwork"></div>
+
+      <div id="configBox">
+        <div class="headRow" style="margin-bottom:6px;">
+          <h3>Physics（5 个滑条）</h3>
+          <button id="hideRightBtn" title="隐藏右侧面板">隐藏</button>
+        </div>
+        <div class="mini" style="margin-top:0;">
+          说明：默认关闭 physics（避免布局抖动与“爆炸”）。你仍可开启用于拖动排版。<br/>
+          布局模式切换使用确定性算法（稳定可复现）。
+        </div>
+        <div id="configInner"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="errBar"></div>
+
+  <!-- 引入模块化JS -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
